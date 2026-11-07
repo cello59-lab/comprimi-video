@@ -1,0 +1,22 @@
+[package]
+name = "comprimi-video"
+version = "0.5.0"
+edition = "2021"
+description = "Comprimi Video: compressione video con ffmpeg (HEVC, H.264, AV1) su GPU AMD, Intel, NVIDIA o CPU, con finestra GTK4/libadwaita"
+authors = ["cello59"]
+license = "GPL-3.0-or-later"
+repository = "https://github.com/cello59-lab/comprimi-video"
+readme = "README.md"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ctrlc = "3"
+gtk = { version = "0.11.5", package = "gtk4", features = ["gnome_46"] }
+adw = { version = "0.9.2", package = "libadwaita", features = ["v1_5"] }
+async-channel = "2.5.0"
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1

@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Comprimi Video
+GenericName=Compressione video
+Comment=Riduci le dimensioni dei video con ffmpeg (HEVC, H.264, AV1; GPU AMD, Intel, NVIDIA o CPU)
+Exec=comprimi-video %F
+Icon=io.github.cello59_lab.ComprimiVideo
+MimeType=video/mp4;video/x-matroska;video/quicktime;video/x-msvideo;video/webm;video/x-m4v;video/mp2t;
+Terminal=false
+StartupNotify=true
+StartupWMClass=io.github.cello59_lab.ComprimiVideo
+Categories=AudioVideo;Video;AudioVideoEditing;
+Keywords=ffmpeg;video;compressione;hevc;av1;vaapi;nvenc;
+X-GNOME-UsesNotifications=true

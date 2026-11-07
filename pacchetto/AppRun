@@ -1,0 +1,34 @@
+#!/bin/bash
+# Avvio di Comprimi Video dentro l'AppImage: indica a GTK e GStreamer dove trovare
+# le parti incluse nel pacchetto. Le librerie hanno già i percorsi relativi (RUNPATH),
+# quindi non serve LD_LIBRARY_PATH, che finirebbe anche ai programmi del sistema.
+
+QUI="$(dirname "$(readlink -f "$0")")"
+export APPDIR="${APPDIR:-$QUI}"
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/comprimi-video"
+mkdir -p "$CACHE"
+
+# libva: va usata quella del sistema, allineata ai suoi driver VA (AMD/Intel);
+# quella inclusa serve solo se il sistema non ne ha nessuna
+ha_libva=0
+for d in /usr/lib/x86_64-linux-gnu /usr/lib64 /usr/lib /lib/x86_64-linux-gnu; do
+    [ -e "$d/libva.so.2" ] && ha_libva=1 && break
+done
+if [ $ha_libva = 0 ]; then
+    export LD_LIBRARY_PATH="$QUI/usr/lib/libva-ripiego${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+
+# GTK: modulo multimediale (anteprima), icone, schemi
+export GTK_PATH="$QUI/usr/lib/gtk-4.0"
+export XDG_DATA_DIRS="${XDG_DATA_DIRS:-/usr/local/share:/usr/share}:$QUI/usr/share"
+export GIO_MODULE_DIR="$QUI/usr/lib/gio/modules"
+sed "s|@APPDIR@|$QUI|g" "$QUI/usr/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache.in" > "$CACHE/pixbuf-loaders.cache"
+export GDK_PIXBUF_MODULE_FILE="$CACHE/pixbuf-loaders.cache"
+
+# GStreamer: solo i plugin inclusi, mai quelli del sistema
+export GST_PLUGIN_SYSTEM_PATH_1_0="$QUI/usr/lib/gstreamer-1.0"
+export GST_PLUGIN_PATH_1_0=""
+export GST_PLUGIN_SCANNER_1_0="$QUI/usr/libexec/gstreamer-1.0/gst-plugin-scanner"
+export GST_REGISTRY_1_0="$CACHE/gst-registry.bin"
+
+exec "$QUI/usr/bin/comprimi-video" "$@"

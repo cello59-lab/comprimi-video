@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="sfondo" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3584e4"/>
+      <stop offset="1" stop-color="#1c5fb8"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="24" fill="url(#sfondo)"/>
+  <!-- pellicola -->
+  <rect x="38" y="30" width="52" height="68" rx="6" fill="#ffffff"/>
+  <rect x="46" y="40" width="36" height="48" rx="3" fill="#1c5fb8"/>
+  <g fill="#1c5fb8">
+    <rect x="40" y="36" width="4" height="6" rx="1"/>
+    <rect x="40" y="50" width="4" height="6" rx="1"/>
+    <rect x="40" y="64" width="4" height="6" rx="1"/>
+    <rect x="40" y="78" width="4" height="6" rx="1"/>
+    <rect x="84" y="36" width="4" height="6" rx="1"/>
+    <rect x="84" y="50" width="4" height="6" rx="1"/>
+    <rect x="84" y="64" width="4" height="6" rx="1"/>
+    <rect x="84" y="78" width="4" height="6" rx="1"/>
+  </g>
+  <!-- simbolo play -->
+  <path d="M58 54 L72 64 L58 74 Z" fill="#ffffff"/>
+  <!-- frecce che comprimono -->
+  <g fill="#f6d32d">
+    <path d="M14 64 L30 52 L30 59 L36 59 L36 69 L30 69 L30 76 Z" transform="rotate(180 25 64)"/>
+    <path d="M114 64 L98 52 L98 59 L92 59 L92 69 L98 69 L98 76 Z" transform="rotate(180 103 64)"/>
+  </g>
+</svg>
