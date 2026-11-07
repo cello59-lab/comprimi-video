@@ -70,7 +70,7 @@ Name=Comprimi Video\n\
 GenericName=Compressione video\n\
 Comment=Riduci le dimensioni dei video con ffmpeg (HEVC, H.264, AV1; GPU AMD, Intel, NVIDIA o CPU)\n\
 Exec=\"{}\" %F\n\
-Icon={APP_ID}\n\
+Icon={}\n\
 MimeType=video/mp4;video/x-matroska;video/quicktime;video/x-msvideo;video/webm;video/x-m4v;video/mp2t;\n\
 Terminal=false\n\
 StartupNotify=true\n\
@@ -78,7 +78,10 @@ StartupWMClass={APP_ID}\n\
 Categories=AudioVideo;Video;AudioVideoEditing;\n\
 Keywords=ffmpeg;video;compressione;hevc;av1;vaapi;nvenc;\n\
 X-GNOME-UsesNotifications=true\n",
-        percorso.display()
+        percorso.display(),
+        // percorso completo: GNOME lo mostra subito, senza aspettare che si accorga
+        // della nuova icona nel tema (a volte solo dopo il logout)
+        file_icona().display()
     );
     let v = voce();
     if let Err(e) = std::fs::create_dir_all(cartella_voci()).and_then(|_| std::fs::write(&v, contenuto)) {
