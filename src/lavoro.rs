@@ -221,14 +221,34 @@ pub fn pianifica(v: &InfoVideo, tagli: &[Taglio], o: &Opzioni, b: &Backend) -> R
             note.push(format!("{:.0} → {lim} fps", v.fps));
         }
     }
-    let risoluzione = match o.risoluzione {
-        Some(t) if v.lato_corto() > t => {
+    let (mut risoluzione, mut lw, mut lh) = (v.lato_corto(), v.larghezza, v.altezza);
+    if let Some(t) = o.risoluzione {
+        if v.lato_corto() > t {
             // il ridimensionamento agisce sul lato corto, così anche i video verticali diventano «720p»
-            filtri.push(if v.verticale() { format!("scale={t}:-2") } else { format!("scale=-2:{t}") });
-            t
+            let lungo = (v.larghezza.max(v.altezza) as f64 * t as f64 / v.lato_corto() as f64).round() as u32 / 2 * 2;
+            if v.verticale() {
+                filtri.push(format!("scale={t}:-2"));
+                (lw, lh) = (t, lungo);
+            } else {
+                filtri.push(format!("scale=-2:{t}"));
+                (lw, lh) = (lungo, t);
+            }
+            risoluzione = t;
         }
-        _ => v.lato_corto(),
-    };
+    }
+    // Gli encoder VAAPI (in particolare AMD) lavorano a blocchi di 16 pixel: con dimensioni
+    // non multiple riempiono il resto con dati non validi (banda verde, es. 1920×802 → 1920×810).
+    // Si ritaglia al multiplo di 16 inferiore, al centro: si perdono al massimo 15 pixel
+    // per lato, di solito dalle bande nere dei film.
+    if b.encoder.famiglia == Famiglia::Vaapi && (lw % 16 != 0 || lh % 16 != 0) {
+        filtri.push("crop=trunc(iw/16)*16:trunc(ih/16)*16".into());
+        note.push(format!(
+            "{lw}×{lh} non è multiplo di 16: ritagliato a {}×{} per l'encoder VAAPI",
+            lw / 16 * 16,
+            lh / 16 * 16
+        ));
+        risoluzione = risoluzione / 16 * 16;
+    }
     filtri.push(b.encoder.filtro_finale().into());
     let filtro = filtri.join(",");
 
@@ -249,7 +269,7 @@ pub fn pianifica(v: &InfoVideo, tagli: &[Taglio], o: &Opzioni, b: &Backend) -> R
 
     let mut durata = v.durata;
     if tagli.is_empty() {
-        a.extend(["-map", "0:v:0", "-map", "0:a?", "-vf"].iter().map(|s| s.to_string()));
+        a.extend(["-map", "0:V:0", "-map", "0:a?", "-vf"].iter().map(|s| s.to_string()));
         a.push(filtro);
     } else {
         let tenute = tempo::parti_tenute(tagli, v.durata);
@@ -285,6 +305,10 @@ pub fn pianifica(v: &InfoVideo, tagli: &[Taglio], o: &Opzioni, b: &Backend) -> R
     } else {
         a.extend(["-c:a", "copy"].iter().map(|s| s.to_string()));
     }
+    // niente capitoli: ffmpeg li copia in una traccia a parte e, se nell'originale l'ultimo
+    // capitolo ha una fine sbagliata (succede negli MKV), il file risulta lungo quanto lui
+    // (es. 21 ore per un film di 2 h 25); con i tagli sarebbero comunque fuori posto
+    a.extend(["-map_chapters", "-1"].iter().map(|s| s.to_string()));
     // faststart: il video parte subito anche in streaming e nelle anteprime dei telefoni
     a.extend(["-movflags", "+faststart", "-progress", "pipe:1", "-nostats"].iter().map(|s| s.to_string()));
     a.push(temporaneo.to_string_lossy().into_owned());
@@ -437,10 +461,11 @@ mod test {
         let p = pianifica(&video(1920, 1080, Some("aac")), &[], &Opzioni::default(), &backend("hevc_vaapi", "AMD")).unwrap();
         let c = cmd(&p);
         assert!(c.starts_with("-hide_banner -y -nostdin -vaapi_device /dev/dri/renderD128 -i /video/gara.mov"), "{c}");
-        assert!(c.contains("-map 0:v:0 -map 0:a? -vf scale=-2:720,format=nv12,hwupload -c:v hevc_vaapi -global_quality 32 -c:a copy"), "{c}");
+        assert!(c.contains("-map 0:V:0 -map 0:a? -vf scale=-2:720,format=nv12,hwupload -c:v hevc_vaapi -global_quality 32 -c:a copy"), "{c}");
         assert_eq!(p.uscita, PathBuf::from("/video/Znew_gara-720p-HEVC-AMD.mp4"));
         assert_eq!(p.temporaneo, PathBuf::from("/video/tmp_Znew_gara-720p-HEVC-AMD.mp4"));
         assert_eq!(p.risoluzione, 720);
+        assert!(c.contains("-map_chapters -1 -movflags +faststart"), "{c}");
     }
 
     #[test]
@@ -452,6 +477,27 @@ mod test {
         assert!(!c.contains("vaapi_device"));
         assert!(p.uscita.ends_with("Znew_gara_720p_HEVC_CPU.mp4"));
         assert!(p.note.iter().any(|n| n.contains("60 → 30 fps")));
+    }
+
+    #[test]
+    fn vaapi_multiplo_di_16() {
+        let mut v = video(1920, 802, Some("aac"));
+        let o = Opzioni { risoluzione: None, ..Opzioni::default() };
+        let p = pianifica(&v, &[], &o, &backend("hevc_vaapi", "AMD")).unwrap();
+        assert!(cmd(&p).contains("-vf crop=trunc(iw/16)*16:trunc(ih/16)*16,format=nv12,hwupload"), "{}", cmd(&p));
+        assert_eq!(p.risoluzione, 800);
+        assert!(p.uscita.ends_with("Znew_gara-800p-HEVC-AMD.mp4"));
+        // ridotto a 720p la larghezza diventa 1724: anche lei va ritagliata
+        let p = pianifica(&v, &[], &Opzioni::default(), &backend("hevc_vaapi", "AMD")).unwrap();
+        assert!(cmd(&p).contains("scale=-2:720,crop="), "{}", cmd(&p));
+        assert!(p.note.iter().any(|n| n.contains("1724×720") && n.contains("1712×720")), "{:?}", p.note);
+        // già allineato: nessun ritaglio
+        v = video(1920, 800, Some("aac"));
+        let p = pianifica(&v, &[], &o, &backend("hevc_vaapi", "AMD")).unwrap();
+        assert!(!cmd(&p).contains("crop"));
+        // gli encoder software gestiscono da soli le dimensioni: nessun ritaglio
+        let p = pianifica(&video(1920, 802, None), &[], &o, &backend("libx265", "CPU")).unwrap();
+        assert!(!cmd(&p).contains("crop"));
     }
 
     #[test]
