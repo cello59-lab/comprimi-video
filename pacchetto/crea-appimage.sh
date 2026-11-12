@@ -4,8 +4,11 @@
 # Va lanciato su Ubuntu 24.04 (o derivate): l'AppImage gira sui sistemi con glibc 2.39
 # o più recente (Ubuntu 24.04+, Mint 22+, Debian 13+, Fedora 40+).
 #
+# ffmpeg viene compilato dai sorgenti ufficiali con compila-ffmpeg.sh (lanciato da qui
+# se manca); i pacchetti che servono a quello sono elencati in testa a quello script.
+#
 # Pacchetti necessari per la costruzione:
-#   sudo apt install ffmpeg libgtk-4-dev libadwaita-1-dev libgtk-4-media-gstreamer \
+#   sudo apt install libgtk-4-dev libadwaita-1-dev libgtk-4-media-gstreamer \
 #     gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
 #     gstreamer1.0-libav gstreamer1.0-pulseaudio gstreamer1.0-alsa librsvg2-common \
 #     adwaita-icon-theme patchelf
@@ -41,14 +44,21 @@ ESCLUSE=('libva.so*' 'libva-drm.so*' 'libva-x11.so*' 'libva-wayland.so*'
 echo "== Compilazione $VERSIONE"
 cargo build --release --manifest-path "$RADICE/Cargo.toml"
 
+FFMPEG_BIN="$RADICE/target/ffmpeg/install/bin"
+if [ ! -x "$FFMPEG_BIN/ffmpeg" ]; then
+    echo "== ffmpeg non ancora compilato: lo compilo"
+    "$QUI/compila-ffmpeg.sh"
+fi
+"$FFMPEG_BIN/ffmpeg" -hide_banner -version | head -1
+
 echo "== Preparazione AppDir"
 rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr/bin"
 
 argomenti=(--appdir "$APPDIR"
            --executable "$RADICE/target/release/comprimi-video"
-           --executable /usr/bin/ffmpeg
-           --executable /usr/bin/ffprobe
+           --executable "$FFMPEG_BIN/ffmpeg"
+           --executable "$FFMPEG_BIN/ffprobe"
            --desktop-file "$QUI/io.github.cello59_lab.ComprimiVideo.desktop"
            --icon-file "$QUI/io.github.cello59_lab.ComprimiVideo.svg"
            --library "$L/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner"
@@ -87,7 +97,7 @@ LD_LIBRARY_PATH="$U/lib" "$L/gdk-pixbuf-2.0/gdk-pixbuf-query-loaders" \
 
 echo "== libva di ripiego (usata solo se il sistema non ha la sua)"
 mkdir -p "$U/lib/libva-ripiego"
-for f in libva.so.2 libva-drm.so.2 libva-x11.so.2; do
+for f in libva.so.2 libva-drm.so.2; do
     cp -L "$L/$f" "$U/lib/libva-ripiego/"
 done
 

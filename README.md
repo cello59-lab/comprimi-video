@@ -105,7 +105,9 @@ I test: `cargo test`.
 ### Costruire l'AppImage
 
 Lo script [`pacchetto/crea-appimage.sh`](pacchetto/crea-appimage.sh) costruisce l'AppImage
-da zero; in testa elenca i pacchetti necessari. Va lanciato su Ubuntu 24.04 e usa
+da zero; in testa elenca i pacchetti necessari. FFmpeg (8.1.3) viene compilato dai sorgenti
+ufficiali con [`pacchetto/compila-ffmpeg.sh`](pacchetto/compila-ffmpeg.sh), lanciato
+automaticamente la prima volta. Va lanciato su Ubuntu 24.04 e usa
 [linuxdeploy](https://github.com/linuxdeploy/linuxdeploy) e
 [appimagetool](https://github.com/AppImage/appimagetool):
 
@@ -127,6 +129,6 @@ Comprimi Video è software libero, distribuito secondo la
 [GNU General Public License versione 3 o successiva](LICENSE).
 
 L'AppImage contiene programmi e librerie di terze parti con le loro licenze,
-tra cui ffmpeg (compilato con x264 e x265, quindi GPL), GTK, libadwaita e GStreamer (LGPL).
-Provengono dai pacchetti di Ubuntu 24.04: i sorgenti corrispondenti sono indicati in
-[TERZE-PARTI.md](TERZE-PARTI.md).
+tra cui FFmpeg 8.1.3 (compilato con x264 e x265, quindi GPL), GTK, libadwaita e GStreamer (LGPL).
+FFmpeg è compilato dai sorgenti ufficiali, il resto proviene dai pacchetti di Ubuntu 24.04:
+i sorgenti corrispondenti sono indicati in [TERZE-PARTI.md](TERZE-PARTI.md).
