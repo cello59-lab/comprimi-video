@@ -156,9 +156,19 @@ pub struct Backend {
     pub nodo: Option<String>,
     pub sigla: String,
     pub descrizione: String,
+    /// Multipli (larghezza, altezza) a cui ritagliare il video prima dell'encoder
+    pub allineamento: (u32, u32),
 }
 
 impl Backend {
+    /// Allineamento da usare quando non è stato misurato.
+    pub fn allineamento_predefinito(f: Famiglia) -> (u32, u32) {
+        match f {
+            Famiglia::Vaapi => (16, 16),
+            _ => (1, 1),
+        }
+    }
+
     pub fn da_prova(p: &Prova, r: &Rilevamento) -> Option<Backend> {
         let encoder = crate::encoder::cerca(&p.encoder)?;
         let gpu = p.gpu.and_then(|i| r.gpu.get(i));
@@ -176,6 +186,7 @@ impl Backend {
             nodo: if encoder.famiglia == Famiglia::Vaapi { gpu.and_then(|g| g.nodo.clone()) } else { None },
             sigla,
             descrizione,
+            allineamento: p.allineamento.unwrap_or_else(|| Backend::allineamento_predefinito(encoder.famiglia)),
         })
     }
 }
@@ -236,18 +247,17 @@ pub fn pianifica(v: &InfoVideo, tagli: &[Taglio], o: &Opzioni, b: &Backend) -> R
             risoluzione = t;
         }
     }
-    // Gli encoder VAAPI (in particolare AMD) lavorano a blocchi di 16 pixel: con dimensioni
-    // non multiple riempiono il resto con dati non validi (banda verde, es. 1920×802 → 1920×810).
-    // Si ritaglia al multiplo di 16 inferiore, al centro: si perdono al massimo 15 pixel
-    // per lato, di solito dalle bande nere dei film.
-    if b.encoder.famiglia == Famiglia::Vaapi && (lw % 16 != 0 || lh % 16 != 0) {
-        filtri.push("crop=trunc(iw/16)*16:trunc(ih/16)*16".into());
-        note.push(format!(
-            "{lw}×{lh} non è multiplo di 16: ritagliato a {}×{} per l'encoder VAAPI",
-            lw / 16 * 16,
-            lh / 16 * 16
-        ));
-        risoluzione = risoluzione / 16 * 16;
+    // Alcuni encoder su GPU (es. AMD con ffmpeg 6) arrotondano le dimensioni a un multiplo
+    // (16, 32…) senza dire al lettore di togliere le righe in più, che appaiono come una banda
+    // verde (es. 1920×1080 → 1920×1088). Il multiplo si misura nel rilevamento; qui si ritaglia
+    // al centro a quel multiplo, così all'encoder non resta nulla da arrotondare.
+    let (aw, ah) = b.allineamento;
+    if lw % aw != 0 || lh % ah != 0 {
+        filtri.push(format!("crop=trunc(iw/{aw})*{aw}:trunc(ih/{ah})*{ah}"));
+        let (nw, nh) = (lw / aw * aw, lh / ah * ah);
+        let regola = if aw == ah { format!("multiple di {aw}") } else { format!("multiple di {aw}×{ah}") };
+        note.push(format!("{lw}×{lh} ritagliato a {nw}×{nh}: questo encoder vuole dimensioni {regola}"));
+        risoluzione = nw.min(nh);
     }
     filtri.push(b.encoder.filtro_finale().into());
     let filtro = filtri.join(",");
@@ -449,6 +459,7 @@ mod test {
             nodo: enc.ends_with("_vaapi").then(|| "/dev/dri/renderD128".to_string()),
             sigla: sigla.into(),
             descrizione: String::new(),
+            allineamento: Backend::allineamento_predefinito(cerca(enc).unwrap().famiglia),
         }
     }
 
@@ -480,7 +491,7 @@ mod test {
     }
 
     #[test]
-    fn vaapi_multiplo_di_16() {
+    fn ritaglio_ai_multipli() {
         let mut v = video(1920, 802, Some("aac"));
         let o = Opzioni { risoluzione: None, ..Opzioni::default() };
         let p = pianifica(&v, &[], &o, &backend("hevc_vaapi", "AMD")).unwrap();
@@ -490,7 +501,7 @@ mod test {
         // ridotto a 720p la larghezza diventa 1724: anche lei va ritagliata
         let p = pianifica(&v, &[], &Opzioni::default(), &backend("hevc_vaapi", "AMD")).unwrap();
         assert!(cmd(&p).contains("scale=-2:720,crop="), "{}", cmd(&p));
-        assert!(p.note.iter().any(|n| n.contains("1724×720") && n.contains("1712×720")), "{:?}", p.note);
+        assert!(p.note.iter().any(|n| n.contains("1724×720 ritagliato a 1712×720")), "{:?}", p.note);
         // già allineato: nessun ritaglio
         v = video(1920, 800, Some("aac"));
         let p = pianifica(&v, &[], &o, &backend("hevc_vaapi", "AMD")).unwrap();
@@ -498,6 +509,18 @@ mod test {
         // gli encoder software gestiscono da soli le dimensioni: nessun ritaglio
         let p = pianifica(&video(1920, 802, None), &[], &o, &backend("libx265", "CPU")).unwrap();
         assert!(!cmd(&p).contains("crop"));
+        // misurato: l'encoder rispetta le dimensioni → nessun ritaglio
+        let mut b = backend("hevc_vaapi", "AMD");
+        b.allineamento = (1, 1);
+        let p = pianifica(&video(1920, 1080, None), &[], &o, &b).unwrap();
+        assert!(!cmd(&p).contains("crop"));
+        assert_eq!(p.risoluzione, 1080);
+        // misurato: l'encoder arrotonda l'altezza a 32 → 1080 diventa 1056
+        b.allineamento = (64, 32);
+        let p = pianifica(&video(1920, 1080, None), &[], &o, &b).unwrap();
+        assert!(cmd(&p).contains("crop=trunc(iw/64)*64:trunc(ih/32)*32"), "{}", cmd(&p));
+        assert_eq!(p.risoluzione, 1056);
+        assert!(p.note[0].contains("1920×1056") && p.note[0].contains("64×32"), "{:?}", p.note);
     }
 
     #[test]

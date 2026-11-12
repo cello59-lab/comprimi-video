@@ -7,11 +7,12 @@ use crate::ffmpeg::{self, InfoFfmpeg};
 use crate::gpu::{self, Gpu, Produttore};
 use serde::{Deserialize, Serialize};
 use std::io::{IsTerminal, Read};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Da aumentare quando cambia il formato o la logica delle prove (invalida la cache).
-pub const FORMATO: u32 = 2;
+pub const FORMATO: u32 = 3;
 const TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -34,6 +35,11 @@ pub struct Prova {
     pub gpu: Option<usize>,
     pub esito: Esito,
     pub durata_ms: u64,
+    /// Multipli (larghezza, altezza) a cui l'encoder porta le dimensioni senza dirlo al lettore
+    /// (le righe in più diventano una banda verde): (1, 1) = dimensioni rispettate.
+    /// Misurato solo per gli encoder su GPU; None = non misurato.
+    #[serde(default)]
+    pub allineamento: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -166,8 +172,8 @@ fn esegui_o_salta(
     ostacolo: Option<Esito>,
     mostra: bool,
 ) -> Prova {
-    let (esito, durata_ms) = match ostacolo {
-        Some(e) => (e, 0),
+    let (esito, durata_ms, allineamento) = match ostacolo {
+        Some(e) => (e, 0, None),
         None => {
             if mostra {
                 eprint!("\r\x1b[KProvo {}…", d.nome);
@@ -182,33 +188,91 @@ fn esegui_o_salta(
         gpu,
         esito,
         durata_ms,
+        allineamento,
     }
 }
 
-/// Argomenti della codifica di prova: 15 fotogrammi 1280×720 generati da ffmpeg, buttati via.
-pub fn comando_prova(d: &DefEncoder, nodo: Option<&str>) -> Vec<String> {
-    let mut a: Vec<String> = ["-hide_banner", "-nostdin", "-loglevel", "error"]
+/// Dimensioni della prova: pari ma non multiple di 16, 32, 64 o 128, e scelte in modo che
+/// l'arrotondamento a ciascuno di questi multipli dia un risultato diverso.
+pub const PROVA_L: u32 = 1282;
+pub const PROVA_A: u32 = 642;
+
+/// Argomenti della codifica di prova: 15 fotogrammi generati da ffmpeg, scritti in `uscita`
+/// (per misurarne le dimensioni) oppure buttati via.
+pub fn comando_prova(d: &DefEncoder, nodo: Option<&str>, uscita: Option<&Path>) -> Vec<String> {
+    let mut a: Vec<String> = ["-hide_banner", "-nostdin", "-y", "-loglevel", "error"]
         .iter()
         .map(|s| s.to_string())
         .collect();
     a.extend(d.argomenti_dispositivo(nodo));
-    for s in ["-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30", "-frames:v", "15", "-an", "-vf"] {
+    a.push("-f".into());
+    a.push("lavfi".into());
+    a.push("-i".into());
+    a.push(format!("testsrc2=size={PROVA_L}x{PROVA_A}:rate=30"));
+    for s in ["-frames:v", "15", "-an", "-vf"] {
         a.push(s.into());
     }
     a.push(d.filtro_finale().into());
     a.push("-c:v".into());
     a.push(d.nome.into());
     a.extend(d.argomenti_qualita(30));
-    for s in ["-f", "null", "-"] {
-        a.push(s.into());
+    match uscita {
+        Some(p) => {
+            a.push("-f".into());
+            a.push("matroska".into());
+            a.push(p.to_string_lossy().into_owned());
+        }
+        None => a.extend(["-f", "null", "-"].iter().map(|s| s.to_string())),
     }
     a
 }
 
-fn esegui_prova(ffmpeg: &str, d: &DefEncoder, nodo: Option<&str>) -> (Esito, u64) {
+/// Multiplo a cui è stata arrotondata una dimensione: 1 se è rimasta uguale,
+/// None se il risultato non corrisponde a nessun arrotondamento noto.
+pub fn multiplo(prima: u32, dopo: u32) -> Option<u32> {
+    if dopo == prima {
+        return Some(1);
+    }
+    [2, 4, 8, 16, 32, 64, 128].into_iter().find(|a| prima.div_ceil(*a) * a == dopo)
+}
+
+/// Larghezza e altezza del video in un file, lette con ffprobe.
+fn dimensioni(ffmpeg: &str, file: &Path) -> Option<(u32, u32)> {
+    let out = Command::new(crate::lavoro::ffprobe_per(ffmpeg))
+        .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0"])
+        .arg(file)
+        .stdin(Stdio::null())
+        .output()
+        .ok()?;
+    let t = String::from_utf8_lossy(&out.stdout);
+    let (w, h) = t.trim().split_once(',')?;
+    Some((w.trim().parse().ok()?, h.trim().parse().ok()?))
+}
+
+fn esegui_prova(ffmpeg: &str, d: &DefEncoder, nodo: Option<&str>) -> (Esito, u64, Option<(u32, u32)>) {
+    // per gli encoder su GPU il risultato si scrive su file, per misurarne le dimensioni
+    let file = (d.famiglia != Famiglia::Software).then(|| {
+        std::env::temp_dir().join(format!("comprimi-video-prova-{}-{}.mkv", std::process::id(), d.nome))
+    });
+    let (esito, ms) = esegui_comando(ffmpeg, comando_prova(d, nodo, file.as_deref()));
+    let mut allineamento = None;
+    if let Some(f) = &file {
+        if esito == Esito::Funziona {
+            allineamento = Some(match dimensioni(ffmpeg, f) {
+                // dimensioni sconosciute o arrotondate in modo strano: si sta larghi
+                Some((w, h)) => (multiplo(PROVA_L, w).unwrap_or(64), multiplo(PROVA_A, h).unwrap_or(64)),
+                None => (16, 16),
+            });
+        }
+        let _ = std::fs::remove_file(f);
+    }
+    (esito, ms, allineamento)
+}
+
+fn esegui_comando(ffmpeg: &str, argomenti: Vec<String>) -> (Esito, u64) {
     let inizio = Instant::now();
     let mut figlio = match Command::new(ffmpeg)
-        .args(comando_prova(d, nodo))
+        .args(argomenti)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -294,15 +358,38 @@ mod test {
 
     #[test]
     fn comando() {
-        let a = comando_prova(cerca("hevc_vaapi").unwrap(), Some("/dev/dri/renderD128"));
+        let a = comando_prova(cerca("hevc_vaapi").unwrap(), Some("/dev/dri/renderD128"), Some(Path::new("/tmp/p.mkv")));
         let s = a.join(" ");
-        assert!(s.contains("-vaapi_device /dev/dri/renderD128 -f lavfi"), "{s}");
-        assert!(s.contains("-vf format=nv12,hwupload -c:v hevc_vaapi -global_quality 30 -f null -"), "{s}");
+        assert!(s.contains("-vaapi_device /dev/dri/renderD128 -f lavfi -i testsrc2=size=1282x642"), "{s}");
+        assert!(s.contains("-vf format=nv12,hwupload -c:v hevc_vaapi -global_quality 30 -f matroska /tmp/p.mkv"), "{s}");
+        let a = comando_prova(cerca("libx264").unwrap(), None, None);
+        assert!(a.join(" ").ends_with("-f null -"));
+    }
+
+    #[test]
+    fn multipli() {
+        assert_eq!(multiplo(PROVA_L, PROVA_L), Some(1));
+        assert_eq!(multiplo(PROVA_A, 656), Some(16));
+        assert_eq!(multiplo(PROVA_A, 672), Some(32));
+        assert_eq!(multiplo(PROVA_A, 704), Some(64));
+        assert_eq!(multiplo(PROVA_A, 768), Some(128));
+        assert_eq!(multiplo(PROVA_L, 1296), Some(16));
+        assert_eq!(multiplo(PROVA_L, 1312), Some(32));
+        assert_eq!(multiplo(PROVA_L, 1344), Some(64));
+        assert_eq!(multiplo(PROVA_A, 650), None);
     }
 
     fn prova(enc: &str, gpu: Option<usize>) -> Prova {
         let d = cerca(enc).unwrap();
-        Prova { encoder: enc.into(), codec: d.codec, famiglia: d.famiglia, gpu, esito: Esito::Funziona, durata_ms: 0 }
+        Prova {
+            encoder: enc.into(),
+            codec: d.codec,
+            famiglia: d.famiglia,
+            gpu,
+            esito: Esito::Funziona,
+            durata_ms: 0,
+            allineamento: None,
+        }
     }
 
     fn scheda(p: Produttore) -> Gpu {

@@ -22,8 +22,49 @@ impl InfoFfmpeg {
     }
 }
 
+/// Sceglie ffmpeg: quello indicato con la variabile vince sempre; fra quello incluso
+/// (nell'AppImage) e quello di sistema si preferisce il sistema solo se è di una versione
+/// principale più recente e ha gli encoder essenziali. Le versioni più nuove gestiscono
+/// meglio le GPU (es. dalla 7 le dimensioni con gli encoder AMD).
 pub fn trova() -> Option<InfoFfmpeg> {
-    candidati().into_iter().find_map(|(p, o)| interroga(&p, o))
+    let mut incluso: Option<InfoFfmpeg> = None;
+    let mut sistema: Option<InfoFfmpeg> = None;
+    for (p, o) in candidati() {
+        let gia = match o {
+            "incluso" => incluso.is_some(),
+            "di sistema" => sistema.is_some(),
+            _ => false,
+        };
+        if gia {
+            continue;
+        }
+        let Some(i) = interroga(&p, o) else { continue };
+        match o {
+            "incluso" => incluso = Some(i),
+            "di sistema" => sistema = Some(i),
+            _ => return Some(i), // variabile COMPRIMI_VIDEO_FFMPEG
+        }
+    }
+    match (incluso, sistema) {
+        (Some(i), Some(s)) if preferisci_sistema(&i, &s) => Some(s),
+        (Some(i), _) => Some(i),
+        (None, s) => s,
+    }
+}
+
+fn preferisci_sistema(incluso: &InfoFfmpeg, sistema: &InfoFfmpeg) -> bool {
+    let essenziali = ["libx264", "libx265"].iter().all(|e| sistema.ha_encoder(e));
+    match (versione_principale(&incluso.versione), versione_principale(&sistema.versione)) {
+        (Some(vi), Some(vs)) => essenziali && vs > vi,
+        _ => false,
+    }
+}
+
+/// «8.0.1-3ubuntu2» → 8, «n7.1» → 7; None per le versioni di sviluppo («N-11234-g…»).
+pub fn versione_principale(v: &str) -> Option<u32> {
+    let v = v.strip_prefix('n').unwrap_or(v);
+    let cifre: String = v.chars().take_while(|c| c.is_ascii_digit()).collect();
+    cifre.parse().ok()
 }
 
 fn candidati() -> Vec<(PathBuf, &'static str)> {
@@ -113,6 +154,29 @@ mod test {
         );
         assert_eq!(estrai_versione("ffmpeg version n7.1 Copyright"), "n7.1");
         assert_eq!(estrai_versione(""), "?");
+    }
+
+    #[test]
+    fn versioni() {
+        assert_eq!(versione_principale("8.0.1-3ubuntu2+esm5"), Some(8));
+        assert_eq!(versione_principale("6.1.1-3ubuntu5"), Some(6));
+        assert_eq!(versione_principale("n7.1"), Some(7));
+        assert_eq!(versione_principale("N-118000-gabcdef"), None);
+        let info = |v: &str, enc: &[&str]| InfoFfmpeg {
+            percorso: String::new(),
+            versione: v.into(),
+            origine: String::new(),
+            encoder: {
+                let mut e: Vec<String> = enc.iter().map(|s| s.to_string()).collect();
+                e.sort();
+                e
+            },
+        };
+        let incluso = info("6.1.1-3ubuntu5", &["libx264", "libx265"]);
+        assert!(preferisci_sistema(&incluso, &info("8.0.1", &["hevc_vaapi", "libx264", "libx265"])));
+        assert!(!preferisci_sistema(&incluso, &info("6.1.2", &["libx264", "libx265"])));
+        // ffmpeg «ridotto» di alcune distribuzioni, senza x264/x265: meglio quello incluso
+        assert!(!preferisci_sistema(&incluso, &info("7.1", &["h264_vaapi"])));
     }
 
     #[test]

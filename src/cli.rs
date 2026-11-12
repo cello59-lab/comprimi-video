@@ -206,7 +206,13 @@ fn scegli_backend(a: &Argomenti, r: &rileva::Rilevamento) -> Result<Backend, Str
         Famiglia::Nvenc => "NVENC".into(),
         Famiglia::Software => "CPU".into(),
     };
-    Ok(Backend { encoder: def, descrizione: nome.into(), nodo, sigla })
+    Ok(Backend {
+        encoder: def,
+        descrizione: nome.into(),
+        nodo,
+        sigla,
+        allineamento: Backend::allineamento_predefinito(def.famiglia),
+    })
 }
 
 pub fn principale(argomenti: Vec<String>) -> ExitCode {

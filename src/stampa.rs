@@ -10,7 +10,14 @@ fn secondi(ms: u64) -> String {
 
 fn riga(p: &Prova) -> String {
     let (segno, nota) = match &p.esito {
-        Esito::Funziona => ("✓", secondi(p.durata_ms)),
+        Esito::Funziona => (
+            "✓",
+            match p.allineamento {
+                Some((1, 1)) | None => secondi(p.durata_ms),
+                Some((w, h)) if w == h => format!("{} · ritaglia a multipli di {w}", secondi(p.durata_ms)),
+                Some((w, h)) => format!("{} · ritaglia a multipli di {w}×{h}", secondi(p.durata_ms)),
+            },
+        ),
         Esito::NonFunziona(m) => ("✗", m.clone()),
         Esito::NonIncluso => ("–", "non incluso in questo ffmpeg".into()),
         Esito::NonProvato(m) => ("–", m.clone()),
