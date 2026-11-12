@@ -55,8 +55,15 @@ make -j"$(nproc)"
 make install
 
 echo "== Fatto"
-"$PREFISSO/bin/ffmpeg" -hide_banner -version | head -1
+"$PREFISSO/bin/ffmpeg" -hide_banner -version | sed -n 1p
+# l'elenco si legge una volta sola: con «ffmpeg | grep -q» e pipefail, grep che si ferma
+# alla prima riga trovata farebbe risultare un errore anche quando l'encoder c'è
+ENCODER=$("$PREFISSO/bin/ffmpeg" -hide_banner -encoders 2>/dev/null)
 for e in h264_vaapi hevc_vaapi av1_vaapi h264_nvenc hevc_nvenc av1_nvenc libx264 libx265 libsvtav1 libaom-av1; do
-    "$PREFISSO/bin/ffmpeg" -hide_banner -encoders 2>/dev/null | grep -q " $e " \
-        && echo "  ✓ $e" || { echo "  ✗ $e MANCANTE"; exit 1; }
+    if grep -q " $e " <<<"$ENCODER"; then
+        echo "  ✓ $e"
+    else
+        echo "  ✗ $e MANCANTE"
+        exit 1
+    fi
 done

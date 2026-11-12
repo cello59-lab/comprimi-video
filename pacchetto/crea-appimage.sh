@@ -49,7 +49,7 @@ if [ ! -x "$FFMPEG_BIN/ffmpeg" ]; then
     echo "== ffmpeg non ancora compilato: lo compilo"
     "$QUI/compila-ffmpeg.sh"
 fi
-"$FFMPEG_BIN/ffmpeg" -hide_banner -version | head -1
+"$FFMPEG_BIN/ffmpeg" -hide_banner -version | sed -n 1p
 
 echo "== Preparazione AppDir"
 rm -rf "$APPDIR"
