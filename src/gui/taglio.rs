@@ -146,7 +146,14 @@ pub fn apri(padre: &impl IsA<gtk::Widget>, voce: Rc<Voce>, al_cambio: Rc<dyn Fn(
     let fatto = gtk::Button::builder().label(t("Fatto")).halign(gtk::Align::Center).build();
     fatto.add_css_class("suggested-action");
     fatto.add_css_class("pill");
-    box_.append(&fatto);
+    // fuori dall'area scorrevole: resta visibile anche quando la finestra è bassa
+    let barra = gtk::Box::builder()
+        .halign(gtk::Align::Center)
+        .margin_top(8)
+        .margin_bottom(14)
+        .build();
+    barra.append(&fatto);
+    vista.add_bottom_bar(&barra);
 
     let durata = voce.info.durata;
     let t = Rc::new(Dialogo {
