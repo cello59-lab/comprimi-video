@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright cello59 -->
+<component type="desktop-application">
+  <id>io.github.cello59_lab.ComprimiVideo</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+
+  <name>Comprimi Video</name>
+  <summary>Reduce the size of videos on the graphics card or on the CPU</summary>
+  <summary xml:lang="it">Riduci le dimensioni dei video sulla scheda video o sulla CPU</summary>
+
+  <developer id="io.github.cello59_lab">
+    <name>cello59</name>
+  </developer>
+
+  <description>
+    <p>
+      Comprimi Video makes videos smaller with ffmpeg, keeping them easy to play.
+      Add some files or a whole folder, choose resolution and codec, and start:
+      the compressed copies are saved next to the originals.
+    </p>
+    <p xml:lang="it">
+      Comprimi Video rende i video più leggeri con ffmpeg, mantenendoli facili da riprodurre.
+      Aggiungi dei file o un'intera cartella, scegli risoluzione e codec e avvia:
+      le copie compresse vengono salvate accanto agli originali.
+    </p>
+    <ul>
+      <li>HEVC, H.264 or AV1 on AMD, Intel and NVIDIA graphics cards (VAAPI, NVENC) or on the CPU</li>
+      <li xml:lang="it">HEVC, H.264 o AV1 su schede video AMD, Intel e NVIDIA (VAAPI, NVENC) oppure sulla CPU</li>
+      <li>Every encoder is really tested on your computer, so only the working ones are offered</li>
+      <li xml:lang="it">Ogni encoder viene provato davvero sul tuo computer, così vengono proposti solo quelli che funzionano</li>
+      <li>Resizing based on the short side, so vertical phone videos work too, and a frame rate limit</li>
+      <li xml:lang="it">Ridimensionamento sul lato corto, così vanno bene anche i video verticali dei telefoni, e limite degli fps</li>
+      <li>Cut parts of a video out, with a preview of the result</li>
+      <li xml:lang="it">Taglio di parti del video, con l'anteprima del risultato</li>
+      <li>Also usable from the terminal, without a window</li>
+      <li xml:lang="it">Utilizzabile anche da terminale, senza finestra</li>
+    </ul>
+    <p>The interface is in English and Italian.</p>
+    <p xml:lang="it">L'interfaccia è in italiano e in inglese.</p>
+  </description>
+
+  <launchable type="desktop-id">io.github.cello59_lab.ComprimiVideo.desktop</launchable>
+  <provides>
+    <binary>comprimi-video</binary>
+  </provides>
+
+  <url type="homepage">https://github.com/cello59-lab/comprimi-video</url>
+  <url type="bugtracker">https://github.com/cello59-lab/comprimi-video/issues</url>
+  <url type="vcs-browser">https://github.com/cello59-lab/comprimi-video</url>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>The list of videos and the settings</caption>
+      <caption xml:lang="it">La lista dei video e le impostazioni</caption>
+      <image>https://raw.githubusercontent.com/cello59-lab/comprimi-video/main/docs/finestra-en.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Compression in progress</caption>
+      <caption xml:lang="it">Compressione in corso</caption>
+      <image>https://raw.githubusercontent.com/cello59-lab/comprimi-video/main/docs/finestra-in-corso-en.png</image>
+    </screenshot>
+  </screenshots>
+
+  <categories>
+    <category>AudioVideo</category>
+    <category>Video</category>
+  </categories>
+  <keywords>
+    <keyword>ffmpeg</keyword>
+    <keyword>compress</keyword>
+    <keyword>HEVC</keyword>
+    <keyword>AV1</keyword>
+    <keyword>VAAPI</keyword>
+    <keyword>NVENC</keyword>
+    <keyword xml:lang="it">comprimi</keyword>
+    <keyword xml:lang="it">compressione</keyword>
+  </keywords>
+
+  <content_rating type="oars-1.1" />
+
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+
+  <releases>
+    <release version="0.7.0" date="2026-11-13">
+      <description>
+        <p>The interface is now in English and Italian: it follows the system language and can be changed from the main menu.</p>
+        <p xml:lang="it">L'interfaccia è ora in inglese e in italiano: segue la lingua del sistema e si può cambiare dal menu principale.</p>
+      </description>
+    </release>
+    <release version="0.6.1" date="2026-11-13">
+      <description>
+        <p>No more GTK theme errors when started from the terminal.</p>
+        <p xml:lang="it">Niente più errori dei temi GTK all'avvio da terminale.</p>
+      </description>
+    </release>
+    <release version="0.6.0" date="2026-11-12">
+      <description>
+        <p>Bundles FFmpeg 8.1.3, built from the official sources: more reliable GPU compression, especially on AMD cards.</p>
+        <p xml:lang="it">Include FFmpeg 8.1.3, compilato dai sorgenti ufficiali: compressione su GPU più affidabile, in particolare con le schede AMD.</p>
+      </description>
+    </release>
+    <release version="0.5.2" date="2026-11-12">
+      <description>
+        <p>Fixes the green band at the bottom of 1920×1080 videos compressed on AMD cards.</p>
+        <p xml:lang="it">Corregge la banda verde in fondo ai video 1920×1080 compressi con le schede AMD.</p>
+      </description>
+    </release>
+    <release version="0.5.1" date="2026-11-08">
+      <description>
+        <p>Fixes for MKV files with broken chapters and for heights that are not multiples of 16.</p>
+        <p xml:lang="it">Correzioni per i file MKV con capitoli difettosi e per le altezze non multiple di 16.</p>
+      </description>
+    </release>
+    <release version="0.5.0" date="2026-11-07">
+      <description>
+        <p>First public version.</p>
+        <p xml:lang="it">Prima versione pubblica.</p>
+      </description>
+    </release>
+  </releases>
+</component>

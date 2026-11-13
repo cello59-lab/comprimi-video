@@ -1,6 +1,7 @@
 //! Finestrella «Hardware»: resoconto del rilevamento e pulsante per ripetere le prove.
 
 use super::Finestra;
+use crate::i18n::t;
 use crate::{rileva, stampa};
 use adw::prelude::*;
 use gtk::{gio, glib};
@@ -8,7 +9,7 @@ use std::rc::Rc;
 
 pub fn mostra(f: &Rc<Finestra>) {
     let d = adw::Dialog::builder()
-        .title("Hardware e encoder")
+        .title(t("Hardware e encoder"))
         .content_width(720)
         .content_height(640)
         .build();
@@ -39,15 +40,15 @@ pub fn mostra(f: &Rc<Finestra>) {
     let nota = gtk::Label::builder()
         .wrap(true)
         .xalign(0.0)
-        .label(
+        .label(t(
             "Ogni encoder viene provato davvero con pochi fotogrammi. Il risultato resta in memoria \
              finché non cambiano ffmpeg, driver, schede video o kernel.",
-        )
+        ))
         .build();
     nota.add_css_class("dim-label");
     box_.append(&nota);
 
-    let ripeti = gtk::Button::builder().label("Ripeti le prove").halign(gtk::Align::Center).build();
+    let ripeti = gtk::Button::builder().label(t("Ripeti le prove")).halign(gtk::Align::Center).build();
     ripeti.add_css_class("pill");
     box_.append(&ripeti);
     vista.set_content(Some(&box_));
@@ -59,28 +60,28 @@ pub fn mostra(f: &Rc<Finestra>) {
     };
     match f.rilevamento() {
         Some(r) => mostra_testo(&stampa::resoconto(&r).replace(
-            "usa --forza per ripetere le prove",
-            "premi «Ripeti le prove» per rifarle",
+            t("usa --forza per ripetere le prove"),
+            t("premi «Ripeti le prove» per rifarle"),
         )),
-        None => mostra_testo("Rilevamento in corso…"),
+        None => mostra_testo(t("Rilevamento in corso…")),
     }
 
     let f2 = f.clone();
     ripeti.connect_clicked(move |b| {
         if f2.stato.borrow().in_corso {
-            f2.avviso("Attendi la fine della compressione");
+            f2.avviso(t("Attendi la fine della compressione"));
             return;
         }
         b.set_sensitive(false);
-        b.set_label("Prove in corso…");
+        b.set_label(t("Prove in corso…"));
         let (b, f3, mostra_testo) = (b.clone(), f2.clone(), mostra_testo.clone());
         glib::spawn_future_local(async move {
             if let Ok(r) = gio::spawn_blocking(|| rileva::rileva_con_cache(true, false)).await {
                 mostra_testo(&stampa::resoconto(&r));
                 f3.imposta_rilevamento(r);
-                f3.log("Rilevamento dell'hardware ripetuto.");
+                f3.log(t("Rilevamento dell'hardware ripetuto."));
             }
-            b.set_label("Ripeti le prove");
+            b.set_label(t("Ripeti le prove"));
             b.set_sensitive(true);
         });
     });

@@ -11,7 +11,7 @@
 #   sudo apt install libgtk-4-dev libadwaita-1-dev libgtk-4-media-gstreamer \
 #     gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
 #     gstreamer1.0-libav gstreamer1.0-pulseaudio gstreamer1.0-alsa librsvg2-common \
-#     adwaita-icon-theme patchelf
+#     adwaita-icon-theme patchelf appstream librsvg2-bin
 # Strumenti (in $STRUMENTI, predefinito ~/strumenti):
 #   linuxdeploy-x86_64.AppImage e appimagetool-x86_64.AppImage
 
@@ -109,6 +109,14 @@ cp /usr/share/icons/hicolor/index.theme "$U/share/icons/hicolor/" 2>/dev/null ||
 cp /usr/share/glib-2.0/schemas/org.gtk.gtk4.*.gschema.xml "$U/share/glib-2.0/schemas/"
 glib-compile-schemas "$U/share/glib-2.0/schemas"
 
+# descrizione per i cataloghi di software (AppStream)
+METAINFO="$QUI/io.github.cello59_lab.ComprimiVideo.metainfo.xml"
+appstreamcli validate --no-net "$METAINFO"
+install -Dm644 "$METAINFO" "$U/share/metainfo/io.github.cello59_lab.ComprimiVideo.metainfo.xml"
+
+# icona dell'AppImage per i gestori dei file e i cataloghi (PNG, come vuole la specifica)
+rsvg-convert -w 256 -h 256 "$QUI/io.github.cello59_lab.ComprimiVideo.svg" -o "$APPDIR/.DirIcon"
+
 echo "== AppRun"
 rm -f "$APPDIR/AppRun"
 cp "$QUI/AppRun" "$APPDIR/AppRun"
@@ -116,5 +124,6 @@ chmod +x "$APPDIR/AppRun"
 
 echo "== Creazione dell'AppImage"
 rm -f "$USCITA"
+# il metainfo è già stato validato qui sopra (appimagetool lo rifarebbe con la rete)
 ARCH=x86_64 "$STRUMENTI/appimagetool-x86_64.AppImage" --no-appstream "$APPDIR" "$USCITA"
 ls -la "$USCITA"

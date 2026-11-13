@@ -43,7 +43,8 @@ impl Famiglia {
         match self {
             Famiglia::Nvenc => "NVENC",
             Famiglia::Vaapi => "VAAPI",
-            Famiglia::Software => "software (CPU)",
+            // tradotto da chi lo mostra
+            Famiglia::Software => crate::i18n::da_tradurre("software (CPU)"),
         }
     }
 }

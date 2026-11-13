@@ -1,6 +1,7 @@
 //! Ricerca di ffmpeg: prima quello indicato, poi quello incluso accanto al programma,
 //! infine quello di sistema.
 
+use crate::i18n::da_tradurre;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::path::PathBuf;
@@ -26,13 +27,18 @@ impl InfoFfmpeg {
 /// (nell'AppImage) e quello di sistema si preferisce il sistema solo se è di una versione
 /// principale più recente e ha gli encoder essenziali. Le versioni più nuove gestiscono
 /// meglio le GPU (es. dalla 7 le dimensioni con gli encoder AMD).
+// origini possibili, salvate in italiano e tradotte da chi le mostra
+const INCLUSO: &str = da_tradurre("incluso");
+const DI_SISTEMA: &str = da_tradurre("di sistema");
+const VARIABILE: &str = da_tradurre("variabile COMPRIMI_VIDEO_FFMPEG");
+
 pub fn trova() -> Option<InfoFfmpeg> {
     let mut incluso: Option<InfoFfmpeg> = None;
     let mut sistema: Option<InfoFfmpeg> = None;
     for (p, o) in candidati() {
         let gia = match o {
-            "incluso" => incluso.is_some(),
-            "di sistema" => sistema.is_some(),
+            INCLUSO => incluso.is_some(),
+            DI_SISTEMA => sistema.is_some(),
             _ => false,
         };
         if gia {
@@ -40,8 +46,8 @@ pub fn trova() -> Option<InfoFfmpeg> {
         }
         let Some(i) = interroga(&p, o) else { continue };
         match o {
-            "incluso" => incluso = Some(i),
-            "di sistema" => sistema = Some(i),
+            INCLUSO => incluso = Some(i),
+            DI_SISTEMA => sistema = Some(i),
             _ => return Some(i), // variabile COMPRIMI_VIDEO_FFMPEG
         }
     }
@@ -70,17 +76,17 @@ pub fn versione_principale(v: &str) -> Option<u32> {
 fn candidati() -> Vec<(PathBuf, &'static str)> {
     let mut v = Vec::new();
     if let Some(p) = env::var_os("COMPRIMI_VIDEO_FFMPEG") {
-        v.push((PathBuf::from(p), "variabile COMPRIMI_VIDEO_FFMPEG"));
+        v.push((PathBuf::from(p), VARIABILE));
     }
     if let Ok(exe) = env::current_exe() {
         if let Some(d) = exe.parent() {
-            v.push((d.join("ffmpeg"), "incluso"));
-            v.push((d.join("../lib/comprimi-video/ffmpeg"), "incluso"));
+            v.push((d.join("ffmpeg"), INCLUSO));
+            v.push((d.join("../lib/comprimi-video/ffmpeg"), INCLUSO));
         }
     }
     if let Some(path) = env::var_os("PATH") {
         for d in env::split_paths(&path) {
-            v.push((d.join("ffmpeg"), "di sistema"));
+            v.push((d.join("ffmpeg"), DI_SISTEMA));
         }
     }
     v

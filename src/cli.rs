@@ -1,6 +1,7 @@
 //! Uso da terminale: rilevamento e compressione senza finestra.
 
 use crate::encoder::{self, Codec, Famiglia};
+use crate::i18n::{t, tf};
 use crate::{lavoro, rileva, stampa, tempo};
 use crate::lavoro::{Audio, Backend, Fine, Opzioni};
 use std::io::{IsTerminal, Write};
@@ -9,7 +10,7 @@ use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-pub const AIUTO: &str = "\
+const AIUTO_IT: &str = "\
 Comprimi Video
 
 Uso:
@@ -37,9 +38,54 @@ Rilevamento:
   --forza                    ripete le prove ignorando la cache
   --json                     resoconto in JSON
 
+Ogni opzione ha anche il nome inglese (--resolution, --quality, --output, --cut,
+--detect, --force, --dry-run…), vedi LANGUAGE=en comprimi-video --help.
+
 ffmpeg viene cercato in quest'ordine: variabile COMPRIMI_VIDEO_FFMPEG,
 accanto al programma, nel PATH di sistema.
 ";
+
+const AIUTO_EN: &str = "\
+Comprimi Video
+
+Usage:
+  comprimi-video [FILE...]                   opens the window (with the files in the list)
+  comprimi-video --cli [options] FILE...     compresses from the terminal, without a window
+  comprimi-video --detect [--force] [--json]
+  comprimi-video --install-menu | --remove-menu
+  comprimi-video --version
+
+Compression:
+  --codec hevc|h264|av1      video codec (default: hevc)
+  --resolution N|original    maximum short side, e.g. 720 (default: 720)
+  --fps N                    frames per second limit (default: none)
+  --quality N                15–45, lower = better and bigger (default: 32)
+  --audio copy|aac           copy the audio or re-encode it to AAC 128k (default: copy)
+  --output FOLDER            where to save (default: next to the original)
+  --prefix TEXT              prefix of the produced files (default: Znew_)
+  --separator C              separator in the suffix (default: -)
+  --cut FROM-TO              removes a part, e.g. --cut 1:00-1:30 (repeatable, one file only)
+  --encoder NAME[@NODE]      forces an encoder, e.g. libx265 or hevc_vaapi@/dev/dri/renderD129
+  --dry-run                  shows the ffmpeg commands without running them
+
+Detection:
+  --detect                   finds graphics cards and working encoders
+  --force                    repeats the tests ignoring the cache
+  --json                     report in JSON
+
+Every option also has an Italian name (--risoluzione, --qualita, --uscita, --taglia…).
+
+ffmpeg is searched in this order: COMPRIMI_VIDEO_FFMPEG variable,
+next to the program, in the system PATH.
+";
+
+/// L'aiuto nella lingua dell'interfaccia.
+pub fn aiuto() -> &'static str {
+    match crate::i18n::lingua() {
+        crate::i18n::Lingua::It => AIUTO_IT,
+        crate::i18n::Lingua::En => AIUTO_EN,
+    }
+}
 
 pub const ESTENSIONI: &[&str] = &["mp4", "mkv", "mov", "avi", "webm", "m4v", "mts", "m2ts"];
 
@@ -69,54 +115,54 @@ fn leggi_argomenti(argomenti: Vec<String>) -> Result<Option<Argomenti>, String> 
     };
     let mut it = argomenti.into_iter();
     while let Some(arg) = it.next() {
-        let mut valore = |nome: &str| it.next().ok_or_else(|| format!("{nome} richiede un valore"));
+        let mut valore = |nome: &str| it.next().ok_or_else(|| tf("{} richiede un valore", &[&nome]));
         match arg.as_str() {
             "-h" | "--help" | "--aiuto" => return Ok(None),
-            "--rileva" => a.rileva = true,
-            "--forza" => a.forza = true,
+            "--rileva" | "--detect" => a.rileva = true,
+            "--forza" | "--force" => a.forza = true,
             "--json" => a.json = true,
-            "--prova" => a.prova = true,
+            "--prova" | "--dry-run" => a.prova = true,
             "--cli" => {}
             "--codec" => {
                 a.codec = match valore("--codec")?.to_lowercase().as_str() {
                     "hevc" | "h265" | "h.265" => Codec::Hevc,
                     "h264" | "h.264" | "avc" => Codec::H264,
                     "av1" => Codec::Av1,
-                    v => return Err(format!("codec sconosciuto: {v}")),
+                    v => return Err(tf("codec sconosciuto: {}", &[&v])),
                 }
             }
-            "--risoluzione" => {
-                let v = valore("--risoluzione")?;
+            "--risoluzione" | "--resolution" => {
+                let v = valore(&arg)?;
                 a.opzioni.risoluzione = match v.trim_end_matches('p') {
-                    "originale" | "0" => None,
-                    n => Some(n.parse().map_err(|_| format!("risoluzione non valida: {v}"))?),
+                    "originale" | "original" | "0" => None,
+                    n => Some(n.parse().map_err(|_| tf("risoluzione non valida: {}", &[&v]))?),
                 }
             }
             "--fps" => {
                 let v = valore("--fps")?;
-                a.opzioni.fps_max = Some(v.parse().map_err(|_| format!("fps non valido: {v}"))?)
+                a.opzioni.fps_max = Some(v.parse().map_err(|_| tf("fps non valido: {}", &[&v]))?)
             }
-            "--qualita" | "--qualità" => {
-                let v = valore("--qualita")?;
-                let q: u8 = v.parse().map_err(|_| format!("qualità non valida: {v}"))?;
+            "--qualita" | "--qualità" | "--quality" => {
+                let v = valore(&arg)?;
+                let q: u8 = v.parse().map_err(|_| tf("qualità non valida: {}", &[&v]))?;
                 if q > 51 {
-                    return Err("la qualità va da 0 a 51".into());
+                    return Err(t("la qualità va da 0 a 51").into());
                 }
                 a.opzioni.qualita = q;
             }
             "--audio" => {
                 a.opzioni.audio = match valore("--audio")?.as_str() {
-                    "copia" => Audio::Copia,
+                    "copia" | "copy" => Audio::Copia,
                     "aac" => Audio::Aac,
-                    v => return Err(format!("audio non valido: {v} (copia o aac)")),
+                    v => return Err(tf("audio non valido: {} (copia o aac)", &[&v])),
                 }
             }
-            "--uscita" => a.opzioni.cartella = Some(PathBuf::from(valore("--uscita")?)),
-            "--prefisso" => a.opzioni.prefisso = valore("--prefisso")?,
-            "--separatore" => a.opzioni.separatore = valore("--separatore")?,
-            "--taglia" => a.tagli.push(tempo::parse_taglio(&valore("--taglia")?)?),
+            "--uscita" | "--output" => a.opzioni.cartella = Some(PathBuf::from(valore(&arg)?)),
+            "--prefisso" | "--prefix" => a.opzioni.prefisso = valore(&arg)?,
+            "--separatore" | "--separator" => a.opzioni.separatore = valore(&arg)?,
+            "--taglia" | "--cut" => a.tagli.push(tempo::parse_taglio(&valore(&arg)?)?),
             "--encoder" => a.encoder = Some(valore("--encoder")?),
-            s if s.starts_with('-') => return Err(format!("opzione sconosciuta: {s}")),
+            s if s.starts_with('-') => return Err(tf("opzione sconosciuta: {}", &[&s])),
             _ => a.file.push(PathBuf::from(arg)),
         }
     }
@@ -146,15 +192,15 @@ pub fn espandi(percorsi: &[PathBuf], prefisso: &str) -> Vec<PathBuf> {
             });
             trovati.sort();
             if trovati.is_empty() {
-                eprintln!("⚠️  Nessun video in {}", p.display());
+                eprintln!("{}", tf("⚠️  Nessun video in {}", &[&p.display()]));
             }
             out.extend(trovati);
         } else if p.is_file() && video(p) {
             out.push(p.clone());
         } else if p.is_file() {
-            eprintln!("⚠️  Formato non supportato, ignorato: {}", p.display());
+            eprintln!("{}", tf("⚠️  Formato non supportato, ignorato: {}", &[&p.display()]));
         } else {
-            eprintln!("⚠️  Non trovato: {}", p.display());
+            eprintln!("{}", tf("⚠️  Non trovato: {}", &[&p.display()]));
         }
     }
     let mut visti = std::collections::HashSet::new();
@@ -167,8 +213,8 @@ fn scegli_backend(a: &Argomenti, r: &rileva::Rilevamento) -> Result<Backend, Str
     let Some(richiesto) = &a.encoder else {
         let p = r
             .consigliato(a.codec)
-            .ok_or_else(|| format!("nessun encoder {} funzionante su questo computer", a.codec.nome()))?;
-        return Backend::da_prova(p, r).ok_or_else(|| "encoder sconosciuto".into());
+            .ok_or_else(|| tf("nessun encoder {} funzionante su questo computer", &[&a.codec.nome()]))?;
+        return Backend::da_prova(p, r).ok_or_else(|| t("encoder sconosciuto").into());
     };
     let (nome, nodo) = match richiesto.split_once('@') {
         Some((n, d)) => (n, Some(d.to_string())),
@@ -176,7 +222,7 @@ fn scegli_backend(a: &Argomenti, r: &rileva::Rilevamento) -> Result<Backend, Str
     };
     let def = encoder::cerca(nome).ok_or_else(|| {
         let noti: Vec<_> = encoder::ENCODER.iter().map(|d| d.nome).collect();
-        format!("encoder sconosciuto: {nome} (noti: {})", noti.join(", "))
+        tf("encoder sconosciuto: {} (noti: {})", &[&nome, &noti.join(", ")])
     })?;
     // se il rilevamento lo ha provato, si usa quella prova (con il suo dispositivo)
     let gpu_nodo = |p: &rileva::Prova| p.gpu.and_then(|i| r.gpu[i].nodo.clone());
@@ -187,11 +233,11 @@ fn scegli_backend(a: &Argomenti, r: &rileva::Rilevamento) -> Result<Backend, Str
         .min_by_key(|p| p.esito != rileva::Esito::Funziona)
     {
         if p.esito != rileva::Esito::Funziona {
-            eprintln!("⚠️  {nome}: il rilevamento dice che non funziona qui, provo comunque");
+            eprintln!("{}", tf("⚠️  {}: il rilevamento dice che non funziona qui, provo comunque", &[&nome]));
         }
-        return Backend::da_prova(p, r).ok_or_else(|| "encoder sconosciuto".into());
+        return Backend::da_prova(p, r).ok_or_else(|| t("encoder sconosciuto").into());
     }
-    eprintln!("⚠️  {nome} non è stato verificato dal rilevamento, provo comunque");
+    eprintln!("{}", tf("⚠️  {} non è stato verificato dal rilevamento, provo comunque", &[&nome]));
     let nodo = match def.famiglia {
         Famiglia::Vaapi => nodo.or_else(|| r.gpu.iter().find(|g| g.accessibile).and_then(|g| g.nodo.clone())),
         _ => None,
@@ -219,11 +265,11 @@ pub fn principale(argomenti: Vec<String>) -> ExitCode {
     let a = match leggi_argomenti(argomenti) {
         Ok(Some(a)) => a,
         Ok(None) => {
-            print!("{AIUTO}");
+            print!("{}", aiuto());
             return ExitCode::SUCCESS;
         }
         Err(e) => {
-            eprintln!("{e}\n\nPer l'elenco delle opzioni: comprimi-video --aiuto");
+            eprintln!("{e}\n\n{}", t("Per l'elenco delle opzioni: comprimi-video --aiuto"));
             return ExitCode::from(1);
         }
     };
@@ -239,7 +285,7 @@ pub fn principale(argomenti: Vec<String>) -> ExitCode {
     }
 
     if a.file.is_empty() {
-        print!("{AIUTO}");
+        print!("{}", aiuto());
         return ExitCode::SUCCESS;
     }
     comprimi(a)
@@ -248,7 +294,7 @@ pub fn principale(argomenti: Vec<String>) -> ExitCode {
 fn comprimi(a: Argomenti) -> ExitCode {
     let r = rileva::rileva_con_cache(a.forza, true);
     let Some(ff) = r.ffmpeg.clone() else {
-        eprintln!("ffmpeg non trovato: installalo oppure indica COMPRIMI_VIDEO_FFMPEG=/percorso/ffmpeg");
+        eprintln!("{}", t("ffmpeg non trovato: installalo oppure indica COMPRIMI_VIDEO_FFMPEG=/percorso/ffmpeg"));
         return ExitCode::from(2);
     };
     let backend = match scegli_backend(&a, &r) {
@@ -260,11 +306,11 @@ fn comprimi(a: Argomenti) -> ExitCode {
     };
     let file = espandi(&a.file, &a.opzioni.prefisso);
     if file.is_empty() {
-        eprintln!("Nessun video da comprimere.");
+        eprintln!("{}", t("Nessun video da comprimere."));
         return ExitCode::from(1);
     }
     if !a.tagli.is_empty() && file.len() > 1 {
-        eprintln!("--taglia vale per un solo file alla volta");
+        eprintln!("{}", t("--taglia vale per un solo file alla volta"));
         return ExitCode::from(1);
     }
 
@@ -303,12 +349,12 @@ fn comprimi(a: Argomenti) -> ExitCode {
             }
         };
         println!(
-            "      {}p → {}p · {} · qualità {}{}",
-            v.lato_corto(),
-            piano.risoluzione,
-            backend.encoder.codec.nome(),
-            a.opzioni.qualita,
-            if v.verticale() { " · verticale" } else { "" }
+            "      {}{}",
+            tf(
+                "{}p → {}p · {} · qualità {}",
+                &[&v.lato_corto(), &piano.risoluzione, &backend.encoder.codec.nome(), &a.opzioni.qualita],
+            ),
+            if v.verticale() { format!(" · {}", t("verticale")) } else { String::new() }
         );
         for nota in &piano.note {
             println!("      {nota}");
@@ -323,7 +369,7 @@ fn comprimi(a: Argomenti) -> ExitCode {
             continue;
         }
         if piano.uscita.exists() {
-            println!("      ⏭  già esistente: {}", piano.uscita.display());
+            println!("      {}", tf("⏭  già esistente: {}", &[&piano.uscita.display()]));
             continue;
         }
         let mut ultimo = -1i64;
@@ -331,7 +377,7 @@ fn comprimi(a: Argomenti) -> ExitCode {
             let perc = (frac * 100.0) as i64;
             if terminale && perc != ultimo {
                 ultimo = perc;
-                let vel = if vel.is_empty() || vel == "N/A" { String::new() } else { format!(" · velocità {vel}") };
+                let vel = if vel.is_empty() || vel == "N/A" { String::new() } else { tf(" · velocità {}", &[&vel]) };
                 print!("\r\x1b[K      {perc}%{vel}");
                 let _ = std::io::stdout().flush();
             }
@@ -349,12 +395,12 @@ fn comprimi(a: Argomenti) -> ExitCode {
                 println!("      {}", piano.uscita.display());
             }
             Fine::Annullato => {
-                println!("      ⏹  annullato");
+                println!("      {}", t("⏹  annullato"));
                 break;
             }
             Fine::Errore(righe) => {
                 errori += 1;
-                println!("      ❌ errore:");
+                println!("      {}", t("❌ errore:"));
                 for r in righe {
                     println!("         {r}");
                 }
@@ -365,14 +411,14 @@ fn comprimi(a: Argomenti) -> ExitCode {
     if !a.prova {
         println!();
         if stop.load(Ordering::Relaxed) {
-            println!("Interrotto.");
+            println!("{}", t("Interrotto."));
         }
-        print!("Fatto: {fatti} file");
+        print!("{}", tf("Fatto: {} file", &[&fatti]));
         if fatti > 0 {
             print!(", {} → {}", lavoro::umano(prima), lavoro::umano(dopo));
         }
         if errori > 0 {
-            print!(", {errori} con errori");
+            print!("{}", tf(", {} con errori", &[&errori]));
         }
         println!();
     }

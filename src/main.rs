@@ -8,6 +8,7 @@ mod encoder;
 mod ffmpeg;
 mod gpu;
 mod gui;
+mod i18n;
 mod lavoro;
 mod menu;
 mod rileva;
@@ -17,7 +18,7 @@ mod tempo;
 use std::process::ExitCode;
 
 /// Opzioni che portano all'uso da terminale.
-const DA_TERMINALE: &[&str] = &["--cli", "--rileva", "--prova", "--aiuto", "--help", "-h"];
+const DA_TERMINALE: &[&str] = &["--cli", "--rileva", "--detect", "--prova", "--dry-run", "--aiuto", "--help", "-h"];
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -27,17 +28,17 @@ fn main() -> ExitCode {
         println!("Comprimi Video {}", gui::VERSIONE);
         return ExitCode::SUCCESS;
     }
-    if ha("--installa-menu") {
+    if ha("--installa-menu") || ha("--install-menu") {
         return menu::installa();
     }
-    if ha("--rimuovi-menu") {
+    if ha("--rimuovi-menu") || ha("--remove-menu") {
         return menu::rimuovi();
     }
     if args.iter().any(|a| DA_TERMINALE.contains(&a.as_str())) {
         return cli::principale(args);
     }
     if let Some(o) = args.iter().find(|a| a.starts_with('-')) {
-        eprintln!("L'opzione {o} vale solo da terminale: aggiungi --cli (vedi --aiuto)");
+        eprintln!("{}", i18n::tf("L'opzione {} vale solo da terminale: aggiungi --cli (vedi --aiuto)", &[o]));
         return ExitCode::from(1);
     }
     gui::avvia(args)

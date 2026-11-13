@@ -4,6 +4,7 @@ mod hardware;
 mod taglio;
 
 use crate::encoder::{Codec, Famiglia};
+use crate::i18n::{self, da_tradurre, t, tf};
 use crate::lavoro::{self, Audio, Backend, Fine, InfoVideo, Opzioni};
 use crate::rileva::{self, Esito, Rilevamento};
 use crate::tempo::{self, Taglio};
@@ -20,11 +21,17 @@ use std::sync::Arc;
 pub const APP_ID: &str = "io.github.cello59_lab.ComprimiVideo";
 pub const VERSIONE: &str = env!("CARGO_PKG_VERSION");
 
-// Le etichette sono le stesse della versione Python, così la configurazione resta compatibile.
-const RISOLUZIONI: &[&str] = &["Originale", "2160p", "1440p", "1080p", "900p", "720p", "576p", "480p", "360p"];
-const FPS_LIMITI: &[&str] = &["Nessun limite", "60", "50", "30", "25", "24"];
-const AUDIO: &[&str] = &["Copia (senza ricodifica)", "Ricodifica AAC 128k"];
-const SEPARATORI: &[(&str, &str)] = &[("Trattino (-)", "-"), ("Spazio", " "), ("Punto (.)", "."), ("Underscore (_)", "_")];
+// Le voci sono quelle della versione Python, così la configurazione resta compatibile:
+// nella configurazione si salva sempre la voce italiana, sullo schermo appare tradotta.
+const RISOLUZIONI: &[&str] = &[da_tradurre("Originale"), "2160p", "1440p", "1080p", "900p", "720p", "576p", "480p", "360p"];
+const FPS_LIMITI: &[&str] = &[da_tradurre("Nessun limite"), "60", "50", "30", "25", "24"];
+const AUDIO: &[&str] = &[da_tradurre("Copia (senza ricodifica)"), da_tradurre("Ricodifica AAC 128k")];
+const SEPARATORI: &[(&str, &str)] = &[
+    (da_tradurre("Trattino (-)"), "-"),
+    (da_tradurre("Spazio"), " "),
+    (da_tradurre("Punto (.)"), "."),
+    (da_tradurre("Underscore (_)"), "_"),
+];
 const CODEC_ORDINE: [Codec; 3] = [Codec::Hevc, Codec::H264, Codec::Av1];
 
 fn etichetta_codec(c: Codec) -> &'static str {
@@ -66,12 +73,18 @@ fn cfg_testo(cfg: &Map<String, Value>, chiave: &str, predef: &str) -> String {
 // ------------------------------------------------------------------ piccoli aiuti
 
 fn combo(titolo: &str, sottotitolo: Option<&str>, voci: &[&str], scelta: &str, predef: u32) -> adw::ComboRow {
-    let r = adw::ComboRow::builder().title(titolo).model(&gtk::StringList::new(voci)).build();
+    let mostrate: Vec<&str> = voci.iter().map(|v| t(v)).collect();
+    let r = adw::ComboRow::builder().title(titolo).model(&gtk::StringList::new(&mostrate)).build();
     if let Some(s) = sottotitolo {
         r.set_subtitle(s);
     }
     r.set_selected(voci.iter().position(|v| *v == scelta).map_or(predef, |i| i as u32));
     r
+}
+
+/// La voce scelta, nella forma salvata nella configurazione (non tradotta).
+fn scelta<'a>(r: &adw::ComboRow, voci: &[&'a str]) -> &'a str {
+    voci.get(r.selected() as usize).copied().unwrap_or(voci[0])
 }
 
 fn testo_scelto(r: &adw::ComboRow) -> String {
@@ -123,7 +136,8 @@ impl Voce {
         if !tagli.is_empty() {
             let n = tempo::unisci_tagli(&tagli).len();
             let tolti = tempo::durata_tagliata(&tagli, self.info.durata);
-            sub += &format!(" · ✂ {n} {} (−{})", if n == 1 { "taglio" } else { "tagli" }, tempo::fmt_t(tolti));
+            let parola = if n == 1 { t("taglio") } else { t("tagli") };
+            sub += &format!(" · ✂ {n} {parola} (−{})", tempo::fmt_t(tolti));
         }
         self.row.set_subtitle(&sub);
     }
@@ -224,6 +238,12 @@ fn icona_sempre_disponibile() {
 }
 
 pub fn avvia(file: Vec<String>) -> ExitCode {
+    // lingua scelta nel menu: vale anche per i testi di GTK e libadwaita (es. dialoghi dei file)
+    match i18n::preferenza().as_str() {
+        "it" => std::env::set_var("LANGUAGE", "it"),
+        "en" => std::env::set_var("LANGUAGE", "en"),
+        _ => {}
+    }
     // va impostato prima che GStreamer parta (c'è ancora un solo thread, quindi è sicuro);
     // eventuali impostazioni dell'utente nella stessa variabile vengono conservate
     let rank = match std::env::var("GST_PLUGIN_FEATURE_RANK") {
@@ -274,22 +294,28 @@ impl Finestra {
         let header = adw::HeaderBar::new();
         let btn_file = gtk::Button::new();
         btn_file.set_child(Some(
-            &adw::ButtonContent::builder().icon_name("list-add-symbolic").label("Aggiungi file").build(),
+            &adw::ButtonContent::builder().icon_name("list-add-symbolic").label(t("Aggiungi file")).build(),
         ));
-        let btn_dir = gtk::Button::builder().icon_name("folder-open-symbolic").tooltip_text("Aggiungi cartella").build();
-        let btn_clear = gtk::Button::builder().icon_name("edit-clear-all-symbolic").tooltip_text("Svuota lista").build();
+        let btn_dir = gtk::Button::builder().icon_name("folder-open-symbolic").tooltip_text(t("Aggiungi cartella")).build();
+        let btn_clear = gtk::Button::builder().icon_name("edit-clear-all-symbolic").tooltip_text(t("Svuota lista")).build();
         let btn_hw = gtk::Button::builder()
             .icon_name("video-display-symbolic")
-            .tooltip_text("Hardware rilevato ed encoder disponibili")
+            .tooltip_text(t("Hardware rilevato ed encoder disponibili"))
             .build();
         header.pack_start(&btn_file);
         header.pack_start(&btn_dir);
         // menu principale (☰) con le informazioni sull'app
         let menu = gio::Menu::new();
-        menu.append(Some("Informazioni su Comprimi Video"), Some("win.info"));
+        // la voce della lingua è scritta in tutte e due le lingue, per ritrovarla comunque
+        let menu_lingua = gio::Menu::new();
+        for (pref, nome) in [("auto", t("Automatica (lingua del sistema)")), ("it", "Italiano"), ("en", "English")] {
+            menu_lingua.append(Some(nome), Some(&format!("win.lingua::{pref}")));
+        }
+        menu.append_submenu(Some("Lingua / Language"), &menu_lingua);
+        menu.append(Some(t("Informazioni su Comprimi Video")), Some("win.info"));
         let btn_menu = gtk::MenuButton::builder()
             .icon_name("open-menu-symbolic")
-            .tooltip_text("Menu principale")
+            .tooltip_text(t("Menu principale"))
             .menu_model(&menu)
             .primary(true)
             .build();
@@ -326,9 +352,9 @@ impl Finestra {
             .build();
         let img = gtk::Image::builder().icon_name("video-x-generic-symbolic").pixel_size(72).build();
         img.add_css_class("dim-label");
-        let tit = gtk::Label::new(Some("Nessun video"));
+        let tit = gtk::Label::new(Some(t("Nessun video")));
         tit.add_css_class("title-2");
-        let desc = gtk::Label::new(Some("Aggiungi dei file o una cartella, oppure trascinali qui"));
+        let desc = gtk::Label::new(Some(t("Aggiungi dei file o una cartella, oppure trascinali qui")));
         desc.add_css_class("dim-label");
         vuoto.append(&img);
         vuoto.append(&tit);
@@ -339,27 +365,27 @@ impl Finestra {
         box_.append(&stack);
 
         // impostazioni
-        let gruppo = adw::PreferencesGroup::builder().title("Impostazioni").build();
+        let gruppo = adw::PreferencesGroup::builder().title(t("Impostazioni")).build();
         box_.append(&gruppo);
 
         let row_res = combo(
-            "Risoluzione",
-            Some("Solo verso il basso; conta il lato corto, quindi vale anche per i video verticali"),
+            t("Risoluzione"),
+            Some(t("Solo verso il basso; conta il lato corto, quindi vale anche per i video verticali")),
             RISOLUZIONI,
             &cfg_testo(&cfg, "res", "720p"),
             5,
         );
         let row_fps = combo(
-            "Limite fotogrammi (FPS)",
-            Some("Applicato solo ai video che superano il limite"),
+            t("Limite fotogrammi (FPS)"),
+            Some(t("Applicato solo ai video che superano il limite")),
             FPS_LIMITI,
             &cfg_testo(&cfg, "fps", FPS_LIMITI[0]),
             0,
         );
         let etichette: Vec<&str> = CODEC_ORDINE.iter().map(|c| etichetta_codec(*c)).collect();
         let row_codec = combo(
-            "Codec video",
-            Some("HEVC equilibrato · H.264 il più compatibile · AV1 file più piccoli, lettori recenti"),
+            t("Codec video"),
+            Some(t("HEVC equilibrato · H.264 il più compatibile · AV1 file più piccoli, lettori recenti")),
             &etichette,
             &cfg_testo(&cfg, "codec", etichette[0]),
             0,
@@ -368,27 +394,27 @@ impl Finestra {
         let row_encoder = adw::ComboRow::builder()
             .title("Encoder")
             .use_subtitle(true)
-            .model(&gtk::StringList::new(&["Rilevamento dell'hardware in corso…"]))
+            .model(&gtk::StringList::new(&[t("Rilevamento dell'hardware in corso…")]))
             .sensitive(false)
             .build();
         let row_q = adw::SpinRow::with_range(15.0, 45.0, 1.0);
-        row_q.set_title("Qualità");
-        row_q.set_subtitle("Più basso = qualità migliore e file più grande");
+        row_q.set_title(t("Qualità"));
+        row_q.set_subtitle(t("Più basso = qualità migliore e file più grande"));
         row_q.set_value(cfg.get("q").and_then(|v| v.as_f64()).unwrap_or(32.0));
         let row_audio = combo("Audio", None, AUDIO, &cfg_testo(&cfg, "audio", AUDIO[0]), 0);
-        let row_pref = adw::EntryRow::builder().title("Prefisso dei file di output").build();
+        let row_pref = adw::EntryRow::builder().title(t("Prefisso dei file di output")).build();
         row_pref.set_text(&cfg_testo(&cfg, "prefisso", "Znew_"));
         let nomi_sep: Vec<&str> = SEPARATORI.iter().map(|(n, _)| *n).collect();
         let row_sep = combo(
-            "Separatore nel suffisso",
-            Some("Es.: nome-720p-HEVC-AMD.mp4"),
+            t("Separatore nel suffisso"),
+            Some(t("Es.: nome-720p-HEVC-AMD.mp4")),
             &nomi_sep,
             &cfg_testo(&cfg, "sep", nomi_sep[0]),
             0,
         );
-        let row_out = adw::ActionRow::builder().title("Cartella di output").build();
-        let btn_reset = pulsante_icona("edit-clear-symbolic", "Usa la cartella del file");
-        let btn_out = pulsante_icona("folder-open-symbolic", "Scegli cartella");
+        let row_out = adw::ActionRow::builder().title(t("Cartella di output")).build();
+        let btn_reset = pulsante_icona("edit-clear-symbolic", t("Usa la cartella del file"));
+        let btn_out = pulsante_icona("folder-open-symbolic", t("Scegli cartella"));
         row_out.add_suffix(&btn_reset);
         row_out.add_suffix(&btn_out);
         for r in [&row_res, &row_fps, &row_codec, &row_encoder] {
@@ -401,7 +427,7 @@ impl Finestra {
         gruppo.add(&row_out);
 
         // log
-        let esp = gtk::Expander::new(Some("Dettagli (log)"));
+        let esp = gtk::Expander::new(Some(t("Dettagli (log)")));
         let log_view = gtk::TextView::builder()
             .editable(false)
             .cursor_visible(false)
@@ -434,7 +460,7 @@ impl Finestra {
         let lbl_info = gtk::Label::builder().xalign(0.0).label(" ").build();
         lbl_info.add_css_class("dim-label");
         let azioni = gtk::Box::builder().spacing(8).halign(gtk::Align::Center).build();
-        let btn_start = gtk::Button::builder().label("Avvia compressione").sensitive(false).build();
+        let btn_start = gtk::Button::builder().label(t("Avvia compressione")).sensitive(false).build();
         btn_start.add_css_class("suggested-action");
         btn_start.add_css_class("pill");
         let btn_stop = gtk::Button::builder().label("Stop").sensitive(false).build();
@@ -533,7 +559,7 @@ impl Finestra {
         drop.connect_drop(move |_, valore, _, _| {
             let Ok(lista) = valore.get::<gdk::FileList>() else { return false };
             if c.stato.borrow().in_corso {
-                c.avviso("Attendi la fine della compressione per aggiungere file");
+                c.avviso(t("Attendi la fine della compressione per aggiungere file"));
                 return false;
             }
             c.aggiungi(lista.files().iter().filter_map(|f| f.path()).collect());
@@ -549,9 +575,23 @@ impl Finestra {
         info.connect_activate(move |_, _| c.mostra_info());
         f.win.add_action(&info);
 
+        let lingua = gio::SimpleAction::new_stateful(
+            "lingua",
+            Some(glib::VariantTy::STRING),
+            &i18n::preferenza().to_variant(),
+        );
+        let c = f.clone();
+        lingua.connect_activate(move |a, v| {
+            if let Some(p) = v.and_then(|v| v.get::<String>()) {
+                a.set_state(&p.to_variant());
+                c.cambia_lingua(&p);
+            }
+        });
+        f.win.add_action(&lingua);
+
         f.pronto.set(true);
         f.aggiorna_vuoto();
-        f.log("Pronto. Aggiungi dei file e premi «Avvia compressione».");
+        f.log(t("Pronto. Aggiungi dei file e premi «Avvia compressione»."));
 
         // rilevamento dell'hardware (immediato se la cache è valida)
         let c = f.clone();
@@ -568,8 +608,9 @@ impl Finestra {
     fn mostra_info(&self) {
         let dentro_appimage = std::env::var("APPIMAGE").is_ok();
         let mut dettagli = format!(
-            "Comprimi Video {VERSIONE}\nPacchetto: {}\nGTK {}.{}.{} · libadwaita {}.{}.{}\n",
-            if dentro_appimage { "AppImage" } else { "eseguibile" },
+            "Comprimi Video {VERSIONE}\n{}: {}\nGTK {}.{}.{} · libadwaita {}.{}.{}\n",
+            t("Pacchetto"),
+            if dentro_appimage { "AppImage" } else { t("eseguibile") },
             gtk::major_version(),
             gtk::minor_version(),
             gtk::micro_version(),
@@ -589,15 +630,57 @@ impl Finestra {
             .website("https://github.com/cello59-lab/comprimi-video")
             .issue_url("https://github.com/cello59-lab/comprimi-video/issues")
             .license_type(gtk::License::Gpl30)
-            .comments(
+            .comments(t(
                 "Riduce le dimensioni dei video con ffmpeg: HEVC, H.264 o AV1, \
                  sulla scheda video (AMD, Intel, NVIDIA) oppure sulla CPU, \
                  con tagli e ridimensionamento.",
-            )
+            ))
             .debug_info(dettagli)
             .debug_info_filename("comprimi-video-info.txt")
             .build();
         d.present(Some(&self.win));
+    }
+
+    // ------------------------------------------------------------------ lingua
+
+    /// Salva la lingua scelta e, se cambia quella dei testi, ricostruisce la finestra
+    /// mantenendo la lista dei video con i loro tagli.
+    fn cambia_lingua(self: &Rc<Self>, preferenza: &str) {
+        let mut m = carica_config();
+        m.insert("lingua".into(), preferenza.into());
+        salva_config(&m);
+        let nuova = i18n::risolvi(preferenza);
+        if nuova == i18n::lingua() || self.stato.borrow().in_corso {
+            return;
+        }
+        let Some(app) = self.win.application().and_downcast::<adw::Application>() else { return };
+        self.salva();
+        i18n::imposta(nuova);
+        let voci: Vec<(InfoVideo, Vec<Taglio>, bool)> = self
+            .stato
+            .borrow()
+            .voci
+            .iter()
+            .map(|v| (v.info.clone(), v.tagli.borrow().clone(), v.fatto.get()))
+            .collect();
+        FINESTRA.with(|c| *c.borrow_mut() = None);
+        let n = finestra(&app);
+        n.win.set_default_size(self.win.width(), self.win.height());
+        if self.win.is_maximized() {
+            n.win.maximize();
+        }
+        for (info, tagli, fatto) in voci {
+            if let Some(v) = n.aggiungi_voce(info) {
+                *v.tagli.borrow_mut() = tagli;
+                v.aggiorna_sottotitolo();
+                if fatto {
+                    v.fatto.set(true);
+                    v.stato.set_label("✅");
+                }
+            }
+        }
+        n.win.present();
+        self.win.destroy();
     }
 
     // ------------------------------------------------------------------ messaggi
@@ -629,8 +712,8 @@ impl Finestra {
         self.stato.borrow_mut().rilevamento = Some(r);
         match ff {
             None => {
-                self.avviso("ffmpeg non trovato: installalo per poter comprimere");
-                self.log("❌ ffmpeg non trovato. Installalo (es. sudo apt install ffmpeg) e riavvia l'app.");
+                self.avviso(t("ffmpeg non trovato: installalo per poter comprimere"));
+                self.log(t("❌ ffmpeg non trovato. Installalo (es. sudo apt install ffmpeg) e riavvia l'app."));
             }
             Some(f) => self.log(&format!("ffmpeg {} ({})", f.versione, f.percorso)),
         }
@@ -678,8 +761,8 @@ impl Finestra {
             let Some(r) = s.rilevamento.as_ref() else { return };
             let auto = r.consigliato(codec).and_then(|p| Backend::da_prova(p, r));
             let mut voci = vec![match &auto {
-                Some(b) => format!("Automatico · {}", b.descrizione),
-                None => "Nessun encoder funzionante".to_string(),
+                Some(b) => tf("Automatico · {}", &[&b.descrizione]),
+                None => t("Nessun encoder funzionante").to_string(),
             }];
             let mut prove: Vec<_> = r.prove.iter().filter(|p| p.codec == codec && p.esito == Esito::Funziona).collect();
             prove.sort_by_key(|p| (p.famiglia == Famiglia::Software, p.gpu));
@@ -734,7 +817,7 @@ impl Finestra {
         }
         let filtri = gio::ListStore::new::<gtk::FileFilter>();
         filtri.append(&filtro);
-        let dlg = gtk::FileDialog::builder().title("Scegli i video").build();
+        let dlg = gtk::FileDialog::builder().title(t("Scegli i video")).build();
         dlg.set_filters(Some(&filtri));
         dlg.set_default_filter(Some(&filtro));
         self.cartella_iniziale(&dlg, None);
@@ -751,7 +834,7 @@ impl Finestra {
     }
 
     fn scegli_cartella(self: &Rc<Self>) {
-        let dlg = gtk::FileDialog::builder().title("Scegli una cartella").build();
+        let dlg = gtk::FileDialog::builder().title(t("Scegli una cartella")).build();
         self.cartella_iniziale(&dlg, None);
         let c = self.clone();
         dlg.select_folder(Some(&self.win), gio::Cancellable::NONE, move |res| {
@@ -762,7 +845,7 @@ impl Finestra {
     }
 
     fn scegli_out(self: &Rc<Self>) {
-        let dlg = gtk::FileDialog::builder().title("Cartella di output").build();
+        let dlg = gtk::FileDialog::builder().title(t("Cartella di output")).build();
         let attuale = self.stato.borrow().outdir.clone();
         self.cartella_iniziale(&dlg, attuale.as_deref());
         let c = self.clone();
@@ -776,7 +859,7 @@ impl Finestra {
     fn imposta_out(&self, p: Option<PathBuf>) {
         self.row_out.set_subtitle(&match &p {
             Some(p) => glib::markup_escape_text(&p.to_string_lossy()).to_string(),
-            None => "Stessa cartella del file originale".into(),
+            None => t("Stessa cartella del file originale").into(),
         });
         self.stato.borrow_mut().outdir = p;
         self.salva();
@@ -798,13 +881,13 @@ impl Finestra {
             return;
         }
         if self.stato.borrow().in_corso {
-            self.avviso("Attendi la fine della compressione per aggiungere file");
+            self.avviso(t("Attendi la fine della compressione per aggiungere file"));
             return;
         }
         self.ricorda_cartella(&paths);
         let espansi = crate::cli::espandi(&paths, &self.row_pref.text());
         if espansi.is_empty() {
-            self.avviso("Nessun video trovato");
+            self.avviso(t("Nessun video trovato"));
             return;
         }
         let nuovi: Vec<PathBuf> = {
@@ -831,23 +914,26 @@ impl Finestra {
             .await;
             for (p, r) in risultati.unwrap_or_default() {
                 match r {
-                    Ok(info) => c.aggiungi_voce(info),
-                    Err(e) => c.log(&format!(
-                        "⚠️ {}: {e}, ignorato",
-                        p.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
+                    Ok(info) => {
+                        c.aggiungi_voce(info);
+                    }
+                    Err(e) => c.log(&tf(
+                        "⚠️ {}: {}, ignorato",
+                        &[&p.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(), &e],
                     )),
                 }
             }
         });
     }
 
-    fn aggiungi_voce(self: &Rc<Self>, info: InfoVideo) {
+    fn aggiungi_voce(self: &Rc<Self>, info: InfoVideo) -> Option<Rc<Voce>> {
         if self.stato.borrow().voci.iter().any(|v| v.info.percorso == info.percorso) {
-            return;
+            return None;
         }
         let mut base_sub = format!("{}p", info.lato_corto());
         if info.verticale() {
-            base_sub += " verticale";
+            base_sub += " ";
+            base_sub += t("verticale");
         }
         if info.fps > 0.0 {
             base_sub += &format!(" · {:.0} fps", info.fps);
@@ -865,10 +951,10 @@ impl Finestra {
             .build();
         let barra = gtk::ProgressBar::builder().valign(gtk::Align::Center).visible(false).build();
         barra.set_size_request(110, -1);
-        let stato = gtk::Label::new(Some("In attesa"));
+        let stato = gtk::Label::new(Some(t("In attesa")));
         stato.add_css_class("dim-label");
-        let btn_taglia = pulsante_icona("edit-cut-symbolic", "Taglia via delle parti del video prima della compressione");
-        let btn = pulsante_icona("user-trash-symbolic", "Rimuovi dalla lista");
+        let btn_taglia = pulsante_icona("edit-cut-symbolic", t("Taglia via delle parti del video prima della compressione"));
+        let btn = pulsante_icona("user-trash-symbolic", t("Rimuovi dalla lista"));
         row.add_suffix(&barra);
         row.add_suffix(&stato);
         row.add_suffix(&btn_taglia);
@@ -897,8 +983,9 @@ impl Finestra {
             }
         });
         self.lista.append(&voce.row);
-        self.stato.borrow_mut().voci.push(voce);
+        self.stato.borrow_mut().voci.push(voce.clone());
         self.aggiorna_vuoto();
+        Some(voce)
     }
 
     fn rimuovi(&self, voce: &Rc<Voce>) {
@@ -934,12 +1021,17 @@ impl Finestra {
         }
         self.btn_start.set_sensitive(!in_corso);
         self.btn_stop.set_sensitive(in_corso);
+        // la lingua si cambia ricostruendo la finestra: non durante la compressione
+        if let Some(a) = self.win.lookup_action("lingua").and_downcast::<gio::SimpleAction>() {
+            a.set_enabled(!in_corso);
+        }
     }
 
     fn opzioni(&self) -> Opzioni {
-        let res = testo_scelto(&self.row_res);
-        let fps = testo_scelto(&self.row_fps);
-        let sep = testo_scelto(&self.row_sep);
+        let res = scelta(&self.row_res, RISOLUZIONI);
+        let fps = scelta(&self.row_fps, FPS_LIMITI);
+        let nomi_sep: Vec<&str> = SEPARATORI.iter().map(|(n, _)| *n).collect();
+        let sep = scelta(&self.row_sep, &nomi_sep);
         Opzioni {
             risoluzione: res.trim_end_matches('p').parse().ok(),
             fps_max: fps.parse().ok(),
@@ -954,20 +1046,20 @@ impl Finestra {
     fn avvia(self: &Rc<Self>) {
         let voci: Vec<Rc<Voce>> = self.stato.borrow().voci.clone();
         if voci.is_empty() {
-            self.avviso("Aggiungi almeno un video");
+            self.avviso(t("Aggiungi almeno un video"));
             return;
         }
         let lavori: Vec<Rc<Voce>> = voci.into_iter().filter(|v| !v.fatto.get()).collect();
         if lavori.is_empty() {
-            self.avviso("Tutti i file sono già stati elaborati");
+            self.avviso(t("Tutti i file sono già stati elaborati"));
             return;
         }
         let Some(b) = self.backend_scelto() else {
-            self.avviso("Nessun encoder disponibile per questo codec");
+            self.avviso(t("Nessun encoder disponibile per questo codec"));
             return;
         };
         let Some(ff) = self.stato.borrow().rilevamento.as_ref().and_then(|r| r.ffmpeg.clone()) else {
-            self.avviso("ffmpeg non trovato");
+            self.avviso(t("ffmpeg non trovato"));
             return;
         };
         let opzioni = self.opzioni();
@@ -1014,7 +1106,7 @@ impl Finestra {
 
     fn ferma(&self) {
         self.stato.borrow().stop.store(true, Ordering::Relaxed);
-        self.log("Stop richiesto…");
+        self.log(t("Stop richiesto…"));
     }
 
     fn fine(&self, fatti: usize, interrotto: bool) {
@@ -1025,15 +1117,15 @@ impl Finestra {
             return;
         }
         if interrotto {
-            self.log("Interrotto.");
-            self.avviso("Compressione interrotta");
+            self.log(t("Interrotto."));
+            self.avviso(t("Compressione interrotta"));
             return;
         }
-        self.log("Processo terminato.");
-        self.avviso("Compressione terminata");
+        self.log(t("Processo terminato."));
+        self.avviso(t("Compressione terminata"));
         if let Some(app) = self.win.application() {
-            let n = gio::Notification::new("Compressione terminata");
-            n.set_body(Some(&format!("File elaborati: {fatti}")));
+            let n = gio::Notification::new(t("Compressione terminata"));
+            n.set_body(Some(&tf("File elaborati: {}", &[&fatti])));
             app.send_notification(Some("fine"), &n);
         }
     }
@@ -1057,14 +1149,15 @@ impl Finestra {
         let s = self.stato.borrow();
         let testo = |p: &Option<PathBuf>| p.as_ref().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
         let mut m = carica_config(); // conserva eventuali chiavi sconosciute
-        m.insert("res".into(), testo_scelto(&self.row_res).into());
-        m.insert("fps".into(), testo_scelto(&self.row_fps).into());
+        let nomi_sep: Vec<&str> = SEPARATORI.iter().map(|(n, _)| *n).collect();
+        m.insert("res".into(), scelta(&self.row_res, RISOLUZIONI).into());
+        m.insert("fps".into(), scelta(&self.row_fps, FPS_LIMITI).into());
         m.insert("codec".into(), testo_scelto(&self.row_codec).into());
         m.insert("encoder".into(), s.encoder_scelto.clone().into());
         m.insert("q".into(), (self.row_q.value() as i64).into());
-        m.insert("audio".into(), testo_scelto(&self.row_audio).into());
+        m.insert("audio".into(), scelta(&self.row_audio, AUDIO).into());
         m.insert("prefisso".into(), self.row_pref.text().to_string().into());
-        m.insert("sep".into(), testo_scelto(&self.row_sep).into());
+        m.insert("sep".into(), scelta(&self.row_sep, &nomi_sep).into());
         m.insert("outdir".into(), testo(&s.outdir).into());
         m.insert("ultima".into(), testo(&s.ultima).into());
         salva_config(&m);
@@ -1101,17 +1194,14 @@ fn lavora(
             }
         };
         if piano.uscita.exists() {
-            invia(Msg::Stato(i, "⏭ Già esistente".into(), None));
+            invia(Msg::Stato(i, t("⏭ Già esistente").into(), None));
             invia(Msg::Totale((i + 1) as f64 / n, String::new()));
             continue;
         }
         invia(Msg::Stato(i, "0%".into(), Some(0.0)));
-        invia(Msg::Log(format!(
-            "--- {nome} ({}p → {}p, {}, qualità {}) ---",
-            info.lato_corto(),
-            piano.risoluzione,
-            b.encoder.codec.nome(),
-            o.qualita
+        invia(Msg::Log(tf(
+            "--- {} ({}p → {}p, {}, qualità {}) ---",
+            &[&nome, &info.lato_corto(), &piano.risoluzione, &b.encoder.codec.nome(), &o.qualita],
         )));
         for nota in &piano.note {
             invia(Msg::Log(format!("   {nota}")));
@@ -1123,7 +1213,7 @@ fn lavora(
                 ultimo = pm;
                 let mut testo = format!("File {}/{} · {:.0}%", i + 1, n as usize, frac * 100.0);
                 if !vel.is_empty() && vel != "N/A" {
-                    testo += &format!(" · velocità {vel}");
+                    testo += &tf(" · velocità {}", &[&vel]);
                 }
                 invia(Msg::Stato(i, format!("{:.0}%", frac * 100.0), Some(frac)));
                 invia(Msg::Totale((i as f64 + frac) / n, testo));
@@ -1147,12 +1237,12 @@ fn lavora(
                 )));
             }
             Fine::Annullato => {
-                invia(Msg::Stato(i, "⏹ Annullato".into(), None));
+                invia(Msg::Stato(i, t("⏹ Annullato").into(), None));
                 break;
             }
             Fine::Errore(righe) => {
-                invia(Msg::Stato(i, "❌ Errore".into(), None));
-                invia(Msg::Log(format!("❌ Errore su {nome}:")));
+                invia(Msg::Stato(i, t("❌ Errore").into(), None));
+                invia(Msg::Log(tf("❌ Errore su {}:", &[&nome])));
                 for r in righe {
                     invia(Msg::Log(format!("   {r}")));
                 }

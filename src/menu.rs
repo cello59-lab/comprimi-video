@@ -1,5 +1,6 @@
 //! --installa-menu / --rimuovi-menu: voce nel menu delle applicazioni che punta a questo programma.
 
+use crate::i18n::{t, tf};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -67,8 +68,10 @@ pub fn installa() -> ExitCode {
         "[Desktop Entry]\n\
 Type=Application\n\
 Name=Comprimi Video\n\
-GenericName=Compressione video\n\
-Comment=Riduci le dimensioni dei video con ffmpeg (HEVC, H.264, AV1; GPU AMD, Intel, NVIDIA o CPU)\n\
+GenericName=Video compressor\n\
+GenericName[it]=Compressione video\n\
+Comment=Reduce the size of videos with ffmpeg (HEVC, H.264, AV1; AMD, Intel, NVIDIA GPU or CPU)\n\
+Comment[it]=Riduci le dimensioni dei video con ffmpeg (HEVC, H.264, AV1; GPU AMD, Intel, NVIDIA o CPU)\n\
 Exec=\"{}\" %F\n\
 Icon={}\n\
 MimeType=video/mp4;video/x-matroska;video/quicktime;video/x-msvideo;video/webm;video/x-m4v;video/mp2t;\n\
@@ -76,7 +79,8 @@ Terminal=false\n\
 StartupNotify=true\n\
 StartupWMClass={APP_ID}\n\
 Categories=AudioVideo;Video;AudioVideoEditing;\n\
-Keywords=ffmpeg;video;compressione;hevc;av1;vaapi;nvenc;\n\
+Keywords=ffmpeg;video;compress;compression;hevc;av1;vaapi;nvenc;\n\
+Keywords[it]=ffmpeg;video;comprimi;compressione;hevc;av1;vaapi;nvenc;\n\
 X-GNOME-UsesNotifications=true\n",
         percorso.display(),
         // percorso completo: GNOME lo mostra subito, senza aspettare che si accorga
@@ -85,7 +89,7 @@ X-GNOME-UsesNotifications=true\n",
     );
     let v = voce();
     if let Err(e) = std::fs::create_dir_all(cartella_voci()).and_then(|_| std::fs::write(&v, contenuto)) {
-        eprintln!("Impossibile scrivere {}: {e}", v.display());
+        eprintln!("{}", tf("Impossibile scrivere {}: {}", &[&v.display(), &e]));
         return ExitCode::from(1);
     }
     let icona = file_icona();
@@ -95,16 +99,16 @@ X-GNOME-UsesNotifications=true\n",
     let _ = std::fs::write(&icona, ICONA);
     for v in voci_vecchie() {
         if std::fs::remove_file(&v).is_ok() {
-            println!("Rimossa la vecchia voce: {}", v.display());
+            println!("{}", tf("Rimossa la vecchia voce: {}", &[&v.display()]));
         }
     }
     for i in icone_vecchie() {
         let _ = std::fs::remove_file(i);
     }
     aggiorna_database();
-    println!("Voce di menu creata: {}", v.display());
-    println!("Punta a: {}", percorso.display());
-    println!("Se sposti il programma, rilancia --installa-menu.");
+    println!("{}", tf("Voce di menu creata: {}", &[&v.display()]));
+    println!("{}", tf("Punta a: {}", &[&percorso.display()]));
+    println!("{}", t("Se sposti il programma, rilancia --installa-menu."));
     ExitCode::SUCCESS
 }
 
@@ -116,14 +120,14 @@ pub fn rimuovi() -> ExitCode {
     }
     for p in std::iter::once(voce()).chain(voci_vecchie()) {
         if std::fs::remove_file(&p).is_ok() {
-            println!("Rimossa: {}", p.display());
+            println!("{}", tf("Rimossa: {}", &[&p.display()]));
             rimosso = true;
         }
     }
     if rimosso {
         aggiorna_database();
     } else {
-        println!("Nessuna voce di menu da rimuovere.");
+        println!("{}", t("Nessuna voce di menu da rimuovere."));
     }
     ExitCode::SUCCESS
 }

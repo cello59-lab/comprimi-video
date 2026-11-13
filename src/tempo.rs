@@ -1,5 +1,7 @@
 //! Tempi e tagli (porting fedele della versione Python).
 
+use crate::i18n::tf;
+
 pub type Taglio = (f64, f64);
 
 /// 83.5 → «01:23.5», 3700 → «1:01:40.0»
@@ -20,13 +22,13 @@ pub fn parse_tempo(t: &str) -> Result<f64, String> {
     let t = t.trim().replace(',', ".");
     let parti: Vec<&str> = t.split(':').collect();
     if t.is_empty() || parti.len() > 3 {
-        return Err(format!("tempo non valido: «{t}»"));
+        return Err(tf("tempo non valido: «{}»", &[&t]));
     }
     let mut sec = 0.0;
     for p in parti {
-        let v: f64 = p.parse().map_err(|_| format!("tempo non valido: «{t}»"))?;
+        let v: f64 = p.parse().map_err(|_| tf("tempo non valido: «{}»", &[&t]))?;
         if !v.is_finite() || v < 0.0 {
-            return Err(format!("tempo non valido: «{t}»"));
+            return Err(tf("tempo non valido: «{}»", &[&t]));
         }
         sec = sec * 60.0 + v;
     }
@@ -37,10 +39,10 @@ pub fn parse_tempo(t: &str) -> Result<f64, String> {
 pub fn parse_taglio(t: &str) -> Result<Taglio, String> {
     let (a, b) = t
         .split_once('-')
-        .ok_or_else(|| format!("taglio non valido: «{t}» (formato DA-A, es. 1:00-1:30)"))?;
+        .ok_or_else(|| tf("taglio non valido: «{}» (formato DA-A, es. 1:00-1:30)", &[&t]))?;
     let (a, b) = (parse_tempo(a)?, parse_tempo(b)?);
     if b <= a + 0.05 {
-        return Err(format!("taglio non valido: «{t}» (la fine deve venire dopo l'inizio)"));
+        return Err(tf("taglio non valido: «{}» (la fine deve venire dopo l'inizio)", &[&t]));
     }
     Ok((a, b))
 }

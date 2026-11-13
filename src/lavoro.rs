@@ -2,6 +2,7 @@
 //! Nessuna dipendenza dall'interfaccia: lo userà sia la riga di comando sia la finestra GTK.
 
 use crate::encoder::{DefEncoder, Famiglia};
+use crate::i18n::{num, t, tf};
 use crate::rileva::{Prova, Rilevamento};
 use crate::tempo::{self, Taglio};
 use std::collections::VecDeque;
@@ -72,21 +73,21 @@ pub fn sonda(ffprobe: &Path, percorso: &Path) -> Result<InfoVideo, String> {
         .arg(percorso)
         .stdin(Stdio::null())
         .output()
-        .map_err(|e| format!("impossibile avviare ffprobe: {e}"))?;
+        .map_err(|e| tf("impossibile avviare ffprobe: {}", &[&e]))?;
     let dimensione = std::fs::metadata(percorso).map(|m| m.len()).unwrap_or(0);
     analizza_sonda(&String::from_utf8_lossy(&out.stdout), percorso, dimensione)
 }
 
 pub fn analizza_sonda(json: &str, percorso: &Path, dimensione: u64) -> Result<InfoVideo, String> {
-    let d: serde_json::Value = serde_json::from_str(json).map_err(|_| "file non leggibile".to_string())?;
+    let d: serde_json::Value = serde_json::from_str(json).map_err(|_| t("file non leggibile").to_string())?;
     let flussi = d["streams"].as_array().cloned().unwrap_or_default();
     let video = flussi
         .iter()
         .find(|s| s["codec_type"] == "video" && s["disposition"]["attached_pic"].as_i64().unwrap_or(0) == 0)
-        .ok_or("nessun flusso video trovato")?;
+        .ok_or_else(|| t("nessun flusso video trovato").to_string())?;
     let (w, h) = (video["width"].as_u64().unwrap_or(0) as u32, video["height"].as_u64().unwrap_or(0) as u32);
     if w == 0 || h == 0 {
-        return Err("risoluzione non rilevata".into());
+        return Err(t("risoluzione non rilevata").into());
     }
     let rotazione = video["side_data_list"]
         .as_array()
@@ -178,8 +179,8 @@ impl Backend {
             Famiglia::Software => "CPU".into(),
         };
         let descrizione = match gpu {
-            Some(g) => format!("{} su {}", encoder.nome, g.nome),
-            None => format!("{} sulla CPU", encoder.nome),
+            Some(g) => tf("{} su {}", &[&encoder.nome, &g.nome]),
+            None => tf("{} sulla CPU", &[&encoder.nome]),
         };
         Some(Backend {
             encoder,
@@ -255,8 +256,11 @@ pub fn pianifica(v: &InfoVideo, tagli: &[Taglio], o: &Opzioni, b: &Backend) -> R
     if lw % aw != 0 || lh % ah != 0 {
         filtri.push(format!("crop=trunc(iw/{aw})*{aw}:trunc(ih/{ah})*{ah}"));
         let (nw, nh) = (lw / aw * aw, lh / ah * ah);
-        let regola = if aw == ah { format!("multiple di {aw}") } else { format!("multiple di {aw}×{ah}") };
-        note.push(format!("{lw}×{lh} ritagliato a {nw}×{nh}: questo encoder vuole dimensioni {regola}"));
+        let multiplo = if aw == ah { aw.to_string() } else { format!("{aw}×{ah}") };
+        note.push(tf(
+            "{}×{} ritagliato a {}×{}: questo encoder vuole dimensioni multiple di {}",
+            &[&lw, &lh, &nw, &nh, &multiplo],
+        ));
         risoluzione = nw.min(nh);
     }
     filtri.push(b.encoder.filtro_finale().into());
@@ -273,7 +277,7 @@ pub fn pianifica(v: &InfoVideo, tagli: &[Taglio], o: &Opzioni, b: &Backend) -> R
     if let Some(c) = &v.audio {
         if !ricodifica && !audio_compatibile_mp4(c) {
             ricodifica = true;
-            note.push(format!("audio {c} non adatto a MP4: ricodificato in AAC"));
+            note.push(tf("audio {} non adatto a MP4: ricodificato in AAC", &[c]));
         }
     }
 
@@ -284,16 +288,19 @@ pub fn pianifica(v: &InfoVideo, tagli: &[Taglio], o: &Opzioni, b: &Backend) -> R
     } else {
         let tenute = tempo::parti_tenute(tagli, v.durata);
         if tenute.is_empty() {
-            return Err("i tagli eliminano tutto il video".into());
+            return Err(t("i tagli eliminano tutto il video").into());
         }
         let con_audio = v.audio.is_some();
         durata = tempo::durata_dopo_tagli(tagli, v.durata);
         let n = tempo::unisci_tagli(tagli).len();
-        note.push(format!(
-            "✂ {n} {} − {}, durata finale {}",
-            if n == 1 { "parte eliminata" } else { "parti eliminate" },
-            tempo::fmt_t(tempo::durata_tagliata(tagli, v.durata)),
-            tempo::fmt_t(durata)
+        note.push(tf(
+            "✂ {} {} − {}, durata finale {}",
+            &[
+                &n,
+                &if n == 1 { t("parte eliminata") } else { t("parti eliminate") },
+                &tempo::fmt_t(tempo::durata_tagliata(tagli, v.durata)),
+                &tempo::fmt_t(durata),
+            ],
         ));
         a.push("-filter_complex".into());
         a.push(tempo::filtro_con_tagli(&tenute, con_audio, &filtro));
@@ -302,7 +309,7 @@ pub fn pianifica(v: &InfoVideo, tagli: &[Taglio], o: &Opzioni, b: &Backend) -> R
             a.extend(["-map", "[ac]"].iter().map(|s| s.to_string()));
             if !ricodifica {
                 ricodifica = true; // l'audio tagliato non si può copiare
-                note.push("con i tagli l'audio viene ricodificato in AAC".into());
+                note.push(t("con i tagli l'audio viene ricodificato in AAC").into());
             }
         }
     }
@@ -348,7 +355,7 @@ pub fn esegui(ffmpeg: &str, piano: &Piano, stop: &AtomicBool, mut avanzamento: i
         .spawn()
     {
         Ok(f) => f,
-        Err(e) => return Fine::Errore(vec![format!("impossibile avviare ffmpeg: {e}")]),
+        Err(e) => return Fine::Errore(vec![tf("impossibile avviare ffmpeg: {}", &[&e])]),
     };
 
     let ultime: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
@@ -415,12 +422,12 @@ pub fn esegui(ffmpeg: &str, piano: &Piano, stop: &AtomicBool, mut avanzamento: i
             Ok(()) => Fine::Fatto {
                 dimensione: std::fs::metadata(&piano.uscita).map(|m| m.len()).unwrap_or(0),
             },
-            Err(e) => Fine::Errore(vec![format!("impossibile rinominare il file: {e}")]),
+            Err(e) => Fine::Errore(vec![tf("impossibile rinominare il file: {}", &[&e])]),
         },
         _ => {
             let _ = std::fs::remove_file(&piano.temporaneo);
             let u = ultime.lock().unwrap();
-            Fine::Errore(if u.is_empty() { vec!["ffmpeg è terminato con un errore".into()] } else { u.iter().cloned().collect() })
+            Fine::Errore(if u.is_empty() { vec![t("ffmpeg è terminato con un errore").into()] } else { u.iter().cloned().collect() })
         }
     }
 }
@@ -429,11 +436,11 @@ pub fn umano(n: u64) -> String {
     let mut v = n as f64;
     for unita in ["B", "KB", "MB", "GB", "TB"] {
         if v < 1024.0 {
-            return if unita == "B" { format!("{v:.0} B") } else { format!("{v:.1} {unita}").replace('.', ",") };
+            return if unita == "B" { format!("{v:.0} B") } else { num(format!("{v:.1} {unita}")) };
         }
         v /= 1024.0;
     }
-    format!("{v:.1} PB").replace('.', ",")
+    num(format!("{v:.1} PB"))
 }
 
 #[cfg(test)]

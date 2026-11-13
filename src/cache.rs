@@ -1,6 +1,7 @@
 //! Cache del rilevamento in ~/.cache/comprimi-video/rilevamento.json.
 //! Si invalida da sola quando cambia qualcosa che può cambiare il risultato:
 //! ffmpeg, schede, driver, kernel, pacchetti dei driver VAAPI o versione del driver NVIDIA.
+//! Conta anche la lingua, perché i motivi dei fallimenti sono salvati già tradotti.
 
 use crate::ffmpeg::InfoFfmpeg;
 use crate::gpu::Gpu;
@@ -39,7 +40,11 @@ fn testo(p: &str) -> String {
 }
 
 pub fn impronta(ff: Option<&InfoFfmpeg>, gpu: &[Gpu]) -> String {
-    let mut s = format!("formato={FORMATO};programma={};", env!("CARGO_PKG_VERSION"));
+    let mut s = format!(
+        "formato={FORMATO};programma={};lingua={};",
+        env!("CARGO_PKG_VERSION"),
+        crate::i18n::codice()
+    );
     // dentro un'AppImage il percorso di ffmpeg cambia a ogni avvio (cartella di montaggio
     // temporanea): conta il file AppImage, che contiene sempre lo stesso ffmpeg
     let appimage = std::env::var("APPIMAGE").ok().filter(|a| {

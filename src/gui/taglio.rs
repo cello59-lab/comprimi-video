@@ -1,6 +1,7 @@
 //! Anteprima del video: si segnano le parti da eliminare prima della compressione.
 
 use super::Voce;
+use crate::i18n::{num, t, tf};
 use crate::tempo::{self, Taglio};
 use adw::prelude::*;
 use gtk::{gio, glib};
@@ -31,7 +32,7 @@ struct Dialogo {
 pub fn apri(padre: &impl IsA<gtk::Widget>, voce: Rc<Voce>, al_cambio: Rc<dyn Fn()>) {
     let nome = voce.info.percorso.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     let d = adw::Dialog::builder()
-        .title(format!("Taglia · {nome}"))
+        .title(tf("Taglia · {}", &[&nome]))
         .content_width(920)
         .content_height(860)
         .build();
@@ -65,7 +66,7 @@ pub fn apri(padre: &impl IsA<gtk::Widget>, voce: Rc<Voce>, al_cambio: Rc<dyn Fn(
     let lbl_stato = gtk::Label::builder()
         .xalign(0.0)
         .wrap(true)
-        .label("Sposta il cursore, premi «Segna inizio» e poi «Segna fine»: la parte tra i due punti verrà eliminata.")
+        .label(t("Sposta il cursore, premi «Segna inizio» e poi «Segna fine»: la parte tra i due punti verrà eliminata."))
         .build();
     lbl_stato.add_css_class("dim-label");
     box_.append(&lbl_stato);
@@ -73,19 +74,19 @@ pub fn apri(padre: &impl IsA<gtk::Widget>, voce: Rc<Voce>, al_cambio: Rc<dyn Fn(
     // spostamenti
     let barra = gtk::Box::builder().spacing(6).halign(gtk::Align::Center).build();
     let mut salti = vec![];
-    for (etichetta, delta) in [("−5 s", -5.0), ("−1 s", -1.0), ("−0,2 s", -0.2)] {
-        let b = gtk::Button::with_label(etichetta);
+    for (etichetta, delta) in [("−5 s".to_string(), -5.0), ("−1 s".to_string(), -1.0), (num("−0.2 s".into()), -0.2)] {
+        let b = gtk::Button::with_label(&etichetta);
         barra.append(&b);
         salti.push((b, delta));
     }
     let btn_play = gtk::Button::builder()
         .icon_name("media-playback-start-symbolic")
-        .tooltip_text("Riproduci / pausa")
+        .tooltip_text(t("Riproduci / pausa"))
         .build();
     btn_play.add_css_class("suggested-action");
     barra.append(&btn_play);
-    for (etichetta, delta) in [("+0,2 s", 0.2), ("+1 s", 1.0), ("+5 s", 5.0)] {
-        let b = gtk::Button::with_label(etichetta);
+    for (etichetta, delta) in [(num("+0.2 s".into()), 0.2), ("+1 s".to_string(), 1.0), ("+5 s".to_string(), 5.0)] {
+        let b = gtk::Button::with_label(&etichetta);
         barra.append(&b);
         salti.push((b, delta));
     }
@@ -98,28 +99,28 @@ pub fn apri(padre: &impl IsA<gtk::Widget>, voce: Rc<Voce>, al_cambio: Rc<dyn Fn(
 
     // segni
     let segni = gtk::Box::builder().spacing(8).halign(gtk::Align::Center).build();
-    let btn_inizio = gtk::Button::with_label("Segna inizio taglio");
-    let btn_fine = gtk::Button::with_label("Segna fine ed elimina");
+    let btn_inizio = gtk::Button::with_label(t("Segna inizio taglio"));
+    let btn_fine = gtk::Button::with_label(t("Segna fine ed elimina"));
     btn_fine.add_css_class("destructive-action");
     segni.append(&btn_inizio);
     segni.append(&btn_fine);
     box_.append(&segni);
 
     let tgl_anteprima = gtk::ToggleButton::builder()
-        .label("▶ Anteprima del risultato")
+        .label(t("▶ Anteprima del risultato"))
         .halign(gtk::Align::Center)
-        .tooltip_text("Riproduce il video saltando le parti eliminate, come sarà dopo il taglio")
+        .tooltip_text(t("Riproduce il video saltando le parti eliminate, come sarà dopo il taglio"))
         .build();
     box_.append(&tgl_anteprima);
 
     // tempi a mano
     let esp = adw::ExpanderRow::builder()
-        .title("Inserisci i tempi a mano")
-        .subtitle("Formati: 83, 1:23, 1:23,5 oppure 0:01:23")
+        .title(t("Inserisci i tempi a mano"))
+        .subtitle(t("Formati: 83, 1:23, 1:23,5 oppure 0:01:23"))
         .build();
-    let e_da = adw::EntryRow::builder().title("Da").build();
-    let e_a = adw::EntryRow::builder().title("A").build();
-    let b_add = gtk::Button::builder().label("Aggiungi taglio").valign(gtk::Align::Center).build();
+    let e_da = adw::EntryRow::builder().title(t("Da")).build();
+    let e_a = adw::EntryRow::builder().title(t("A")).build();
+    let b_add = gtk::Button::builder().label(t("Aggiungi taglio")).valign(gtk::Align::Center).build();
     let riga_b = adw::ActionRow::builder().title(" ").build();
     riga_b.add_suffix(&b_add);
     esp.add_row(&e_da);
@@ -130,7 +131,7 @@ pub fn apri(padre: &impl IsA<gtk::Widget>, voce: Rc<Voce>, al_cambio: Rc<dyn Fn(
     box_.append(&g_man);
 
     // elenco tagli
-    let g_tagli = adw::PreferencesGroup::builder().title("Parti eliminate").build();
+    let g_tagli = adw::PreferencesGroup::builder().title(t("Parti eliminate")).build();
     let sw = gtk::ScrolledWindow::builder()
         .min_content_height(110)
         .max_content_height(190)
@@ -142,7 +143,7 @@ pub fn apri(padre: &impl IsA<gtk::Widget>, voce: Rc<Voce>, al_cambio: Rc<dyn Fn(
     lbl_riepilogo.add_css_class("dim-label");
     box_.append(&lbl_riepilogo);
 
-    let fatto = gtk::Button::builder().label("Fatto").halign(gtk::Align::Center).build();
+    let fatto = gtk::Button::builder().label(t("Fatto")).halign(gtk::Align::Center).build();
     fatto.add_css_class("suggested-action");
     fatto.add_css_class("pill");
     box_.append(&fatto);
@@ -232,9 +233,9 @@ impl Dialogo {
             return true; // il file può non essere ancora stato aperto
         };
         if let Some(e) = s.error() {
-            self.lbl_stato.set_label(&format!(
+            self.lbl_stato.set_label(&tf(
                 "Anteprima non disponibile ({}). Puoi comunque inserire i tempi a mano.",
-                e.message()
+                &[&e.message()],
             ));
         }
         if self.durata.get() <= 0.0 && s.duration() > 0 {
@@ -260,7 +261,7 @@ impl Dialogo {
         }
         if !tagli.is_empty() && self.tgl_anteprima.is_active() {
             let tolti: f64 = tagli.iter().filter(|(a, _)| pos > *a).map(|(a, b)| b.min(pos) - a).sum();
-            testo += &format!("   ·   nel risultato: {}", tempo::fmt_t(pos - tolti));
+            testo += &tf("   ·   nel risultato: {}", &[&tempo::fmt_t(pos - tolti)]);
             if durata > 0.0 {
                 testo += &format!(" / {}", tempo::fmt_t(tempo::durata_dopo_tagli(&tagli, durata)));
             }
@@ -278,7 +279,7 @@ impl Dialogo {
         let Some(s) = self.stream() else { return };
         if attiva {
             if self.voce.tagli.borrow().is_empty() {
-                self.avviso("Non ci sono ancora tagli da vedere");
+                self.avviso(t("Non ci sono ancora tagli da vedere"));
             }
             s.seek(0);
             s.set_playing(true);
@@ -305,21 +306,21 @@ impl Dialogo {
     fn segna_inizio(&self) {
         let p = self.pos();
         self.inizio.set(Some(p));
-        self.btn_inizio.set_label(&format!("Inizio: {}", tempo::fmt_t(p)));
-        self.avviso(&format!(
+        self.btn_inizio.set_label(&tf("Inizio: {}", &[&tempo::fmt_t(p)]));
+        self.avviso(&tf(
             "Inizio del taglio a {}: ora vai alla fine e premi «Segna fine»",
-            tempo::fmt_t(p)
+            &[&tempo::fmt_t(p)],
         ));
     }
 
     fn segna_fine(self: &Rc<Self>) {
         let Some(a) = self.inizio.get() else {
-            self.avviso("Segna prima l'inizio del taglio");
+            self.avviso(t("Segna prima l'inizio del taglio"));
             return;
         };
         if self.aggiungi(a, self.pos()) {
             self.inizio.set(None);
-            self.btn_inizio.set_label("Segna inizio taglio");
+            self.btn_inizio.set_label(t("Segna inizio taglio"));
         }
     }
 
@@ -331,7 +332,7 @@ impl Dialogo {
                     self.e_a.set_text("");
                 }
             }
-            _ => self.avviso("Tempi non validi (esempio: 1:23 o 83,5)"),
+            _ => self.avviso(t("Tempi non validi (esempio: 1:23 o 83,5)")),
         }
     }
 
@@ -340,7 +341,7 @@ impl Dialogo {
             b = b.min(self.durata.get());
         }
         if b <= a + 0.05 {
-            self.avviso("La fine deve essere dopo l'inizio");
+            self.avviso(t("La fine deve essere dopo l'inizio"));
             return false;
         }
         let nuovi = {
@@ -353,8 +354,8 @@ impl Dialogo {
         true
     }
 
-    fn togli(self: &Rc<Self>, t: Taglio) {
-        self.voce.tagli.borrow_mut().retain(|x| *x != t);
+    fn togli(self: &Rc<Self>, tg: Taglio) {
+        self.voce.tagli.borrow_mut().retain(|x| *x != tg);
         self.ridisegna();
     }
 
@@ -363,16 +364,16 @@ impl Dialogo {
             self.g_tagli.remove(&r);
         }
         let tagli = self.voce.tagli.borrow().clone();
-        for t in &tagli {
-            let (a, b) = *t;
+        for tg in &tagli {
+            let (a, b) = *tg;
             let riga = adw::ActionRow::builder()
                 .title(format!("{}  →  {}", tempo::fmt_t(a), tempo::fmt_t(b)))
-                .subtitle(format!("{:.1} s eliminati", b - a).replace('.', ","))
+                .subtitle(tf("{} s eliminati", &[&num(format!("{:.1}", b - a))]))
                 .build();
             let vai = gtk::Button::builder()
                 .icon_name("media-seek-forward-symbolic")
                 .valign(gtk::Align::Center)
-                .tooltip_text("Vai all'inizio di questo taglio")
+                .tooltip_text(t("Vai all'inizio di questo taglio"))
                 .build();
             vai.add_css_class("flat");
             let c = self.clone();
@@ -380,12 +381,12 @@ impl Dialogo {
             let cest = gtk::Button::builder()
                 .icon_name("user-trash-symbolic")
                 .valign(gtk::Align::Center)
-                .tooltip_text("Annulla questo taglio")
+                .tooltip_text(t("Annulla questo taglio"))
                 .build();
             cest.add_css_class("flat");
             let c = self.clone();
-            let t = *t;
-            cest.connect_clicked(move |_| c.togli(t));
+            let tg = *tg;
+            cest.connect_clicked(move |_| c.togli(tg));
             riga.add_suffix(&vai);
             riga.add_suffix(&cest);
             self.g_tagli.add(&riga);
@@ -393,12 +394,12 @@ impl Dialogo {
         }
         let durata = self.durata.get();
         if tagli.is_empty() {
-            self.lbl_riepilogo.set_label("Nessun taglio: il video verrà compresso per intero.");
+            self.lbl_riepilogo.set_label(t("Nessun taglio: il video verrà compresso per intero."));
         } else {
             let dopo = tempo::durata_dopo_tagli(&tagli, durata);
-            let mut testo = format!("Eliminati {}", tempo::fmt_t(tempo::durata_tagliata(&tagli, durata)));
+            let mut testo = tf("Eliminati {}", &[&tempo::fmt_t(tempo::durata_tagliata(&tagli, durata))]);
             if durata > 0.0 {
-                testo += &format!(" · durata finale circa {}", tempo::fmt_t(dopo));
+                testo += &tf(" · durata finale circa {}", &[&tempo::fmt_t(dopo)]);
             }
             self.lbl_riepilogo.set_label(&testo);
         }

@@ -10,8 +10,15 @@
 </p>
 
 <p align="center">
+  <b>Italiano</b> · <a href="README.en.md">English</a>
+</p>
+
+<p align="center">
   <img src="docs/finestra.png" width="560" alt="La finestra di Comprimi Video">
 </p>
+
+L'interfaccia è in italiano e in inglese: segue la lingua del sistema e si può cambiare
+dal menu principale (☰ → Lingua / Language).
 
 ## Cosa fa
 
@@ -86,6 +93,7 @@ comprimi-video --cli --encoder libx265 video.mp4   # forza un encoder
 comprimi-video --aiuto                       # tutte le opzioni
 ```
 
+Ogni opzione ha anche il nome inglese (`--detect`, `--resolution`, `--cut`, `--install-menu`…).
 Con l'AppImage si usa allo stesso modo: `Comprimi_Video-*-x86_64.AppImage --rileva`.
 
 ## Compilare dai sorgenti
@@ -101,6 +109,9 @@ cargo build --release
 
 Serve Rust 1.92 o più recente (con [rustup](https://rustup.rs) se quello della distribuzione è più vecchio).
 I test: `cargo test`.
+
+I testi dell'interfaccia sono scritti in italiano nel codice; le traduzioni inglesi sono in
+[`src/traduzioni.rs`](src/traduzioni.rs) e `cargo test` segnala i testi nuovi ancora da tradurre.
 
 ### Costruire l'AppImage
 

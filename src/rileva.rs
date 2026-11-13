@@ -2,6 +2,7 @@
 //! pochi fotogrammi di prova. Solo così si sa cosa funziona davvero su questa macchina.
 
 use crate::cache;
+use crate::i18n::{t, tf};
 use crate::encoder::{Codec, DefEncoder, Famiglia, ENCODER};
 use crate::ffmpeg::{self, InfoFfmpeg};
 use crate::gpu::{self, Gpu, Produttore};
@@ -151,14 +152,15 @@ fn ostacolo(ff: &InfoFfmpeg, d: &DefEncoder, g: &Gpu) -> Option<Esito> {
     }
     match d.famiglia {
         Famiglia::Vaapi => match &g.nodo {
-            None => Some(Esito::NonProvato("la scheda non ha un dispositivo /dev/dri/renderD*".into())),
-            Some(n) if !g.accessibile => Some(Esito::NonProvato(format!(
-                "permesso negato su {n}: l'utente deve far parte del gruppo «render»"
+            None => Some(Esito::NonProvato(t("la scheda non ha un dispositivo /dev/dri/renderD*").into())),
+            Some(n) if !g.accessibile => Some(Esito::NonProvato(tf(
+                "permesso negato su {}: l'utente deve far parte del gruppo «render»",
+                &[n],
             ))),
             _ => None,
         },
         Famiglia::Nvenc if g.driver.as_deref() == Some("nouveau") => Some(Esito::NonProvato(
-            "driver libero nouveau: per NVENC serve il driver proprietario NVIDIA".into(),
+            t("driver libero nouveau: per NVENC serve il driver proprietario NVIDIA").into(),
         )),
         _ => None,
     }
@@ -176,7 +178,7 @@ fn esegui_o_salta(
         Some(e) => (e, 0, None),
         None => {
             if mostra {
-                eprint!("\r\x1b[KProvo {}…", d.nome);
+                eprint!("\r\x1b[K{}", tf("Provo {}…", &[&d.nome]));
             }
             esegui_prova(&ff.percorso, d, nodo)
         }
@@ -279,7 +281,7 @@ fn esegui_comando(ffmpeg: &str, argomenti: Vec<String>) -> (Esito, u64) {
         .spawn()
     {
         Ok(f) => f,
-        Err(e) => return (Esito::NonFunziona(format!("impossibile avviare ffmpeg: {e}")), 0),
+        Err(e) => return (Esito::NonFunziona(tf("impossibile avviare ffmpeg: {}", &[&e])), 0),
     };
     // stderr letto in un thread a parte, così ffmpeg non si blocca a buffer pieno
     let mut err = figlio.stderr.take().expect("stderr");
@@ -305,34 +307,34 @@ fn esegui_comando(ffmpeg: &str, argomenti: Vec<String>) -> (Esito, u64) {
     let esito = match stato {
         Some(s) if s.success() => Esito::Funziona,
         Some(_) => Esito::NonFunziona(spiega(&stderr)),
-        None => Esito::NonFunziona(format!("nessuna risposta entro {} s", TIMEOUT.as_secs())),
+        None => Esito::NonFunziona(tf("nessuna risposta entro {} s", &[&TIMEOUT.as_secs()])),
     };
     (esito, ms)
 }
 
 /// Traduce gli errori di ffmpeg più comuni in una spiegazione comprensibile.
 pub fn spiega(stderr: &str) -> String {
-    let t = stderr.to_lowercase();
-    let c = |s: &str| t.contains(s);
+    let basso = stderr.to_lowercase();
+    let c = |s: &str| basso.contains(s);
     if c("no usable encoding profile") || c("no usable encoding entrypoint") || c("entrypoint not supported") {
-        return "la scheda non supporta la codifica in questo formato".into();
+        return t("la scheda non supporta la codifica in questo formato").into();
     }
     if c("required nvenc api version") || c("driver does not support") {
-        return "driver NVIDIA troppo vecchio per questo ffmpeg".into();
+        return t("driver NVIDIA troppo vecchio per questo ffmpeg").into();
     }
     if c("cannot load libcuda") || c("cannot load libnvidia-encode") {
-        return "librerie NVIDIA assenti: serve il driver proprietario NVIDIA".into();
+        return t("librerie NVIDIA assenti: serve il driver proprietario NVIDIA").into();
     }
     if c("unsupported device") || c("no capable devices found") || c("openencodesessionex failed") {
-        return "la scheda NVIDIA non supporta questo formato".into();
+        return t("la scheda NVIDIA non supporta questo formato").into();
     }
     if c("failed to initialise vaapi") || c("vainitialize failed") || c("va_openDriver".to_lowercase().as_str()) {
-        return "driver VAAPI mancante o non funzionante (es. mesa-va-drivers, intel-media-va-driver)".into();
+        return t("driver VAAPI mancante o non funzionante (es. mesa-va-drivers, intel-media-va-driver)").into();
     }
     if c("permission denied") {
-        return "permesso negato sul dispositivo (gruppo «render»)".into();
+        return t("permesso negato sul dispositivo (gruppo «render»)").into();
     }
-    let ultima = stderr.lines().rev().map(str::trim).find(|r| !r.is_empty()).unwrap_or("errore sconosciuto");
+    let ultima = stderr.lines().rev().map(str::trim).find(|r| !r.is_empty()).unwrap_or(t("errore sconosciuto"));
     let mut s: String = ultima.chars().take(160).collect();
     if ultima.chars().count() > 160 {
         s.push('…');
