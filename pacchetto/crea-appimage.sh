@@ -11,7 +11,7 @@
 #   sudo apt install libgtk-4-dev libadwaita-1-dev libgtk-4-media-gstreamer \
 #     gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
 #     gstreamer1.0-libav gstreamer1.0-pulseaudio gstreamer1.0-alsa librsvg2-common \
-#     adwaita-icon-theme patchelf appstream librsvg2-bin
+#     adwaita-icon-theme patchelf appstream librsvg2-bin gstreamer1.0-gl
 # Strumenti (in $STRUMENTI, predefinito ~/strumenti):
 #   linuxdeploy-x86_64.AppImage e appimagetool-x86_64.AppImage
 
@@ -29,9 +29,12 @@ export APPIMAGE_EXTRACT_AND_RUN=1   # gli strumenti funzionano anche senza FUSE
 # Plugin GStreamer per l'anteprima dei tagli: lettura dei contenitori, decodifica
 # software (libav), conversioni e audio. Volutamente esclusi: va (decodifica su GPU,
 # artefatti verdi), gtk* (per GTK3, bloccano l'app), directfb e altre uscite video.
+# opengl serve a GTK per mostrare le immagini: quando la scheda video offre OpenGL (cioè
+# quasi sempre) GTK passa i fotogrammi da «glsinkbin»; senza, l'anteprima resta nera.
+# deinterlace e videofilter (videobalance) li chiede la riproduzione di GStreamer.
 PLUGIN_GST=(coreelements typefindfunctions playback app videoconvertscale audioconvert
             audioresample volume autodetect isomp4 matroska avi libav pulseaudio alsa
-            audioparsers videoparsersbad mpegtsdemux audiofx)
+            audioparsers videoparsersbad mpegtsdemux audiofx opengl deinterlace videofilter)
 
 # Librerie da NON includere: le prende dal sistema.
 #  - libva*: deve essere quella allineata ai driver VA del sistema (c'è un ripiego, vedi sotto)
