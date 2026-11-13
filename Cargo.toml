@@ -1,6 +1,6 @@
 [package]
 name = "comprimi-video"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 description = "Comprimi Video: compressione video con ffmpeg (HEVC, H.264, AV1) su GPU AMD, Intel, NVIDIA o CPU, con finestra GTK4/libadwaita"
 authors = ["cello59"]

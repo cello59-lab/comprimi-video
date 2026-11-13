@@ -18,9 +18,27 @@ if [ $ha_libva = 0 ]; then
     export LD_LIBRARY_PATH="$QUI/usr/lib/libva-ripiego${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 fi
 
+# Temi GTK del sistema: sono scritti per la GTK del sistema, spesso più recente di quella
+# inclusa, che all'avvio li legge comunque e segnala errori (es. Yaru su Ubuntu 26.04:
+# «Theme parser error: gtk.css:68:14-18: Expected a number»). L'app usa solo lo stile di
+# libadwaita, quindi per ogni tema GTK4 del sistema ne metto uno vuoto con lo stesso
+# nome in una cartella che GTK consulta prima. GTK_THEME non va bene: con quella
+# variabile libadwaita rinuncia al proprio stile.
+DATI_SISTEMA="${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+TEMI="$CACHE/temi-vuoti"
+IFS=: read -ra cartelle <<< "$DATI_SISTEMA"
+for d in "${cartelle[@]}"; do
+    for t in "$d"/themes/*/gtk-4.0; do
+        [ -d "$t" ] || continue
+        vuoto="$TEMI/themes/$(basename "$(dirname "$t")")/gtk-4.0"
+        [ -f "$vuoto/gtk.css" ] && continue
+        mkdir -p "$vuoto" && : > "$vuoto/gtk.css" && : > "$vuoto/gtk-dark.css"
+    done
+done
+
 # GTK: modulo multimediale (anteprima), icone, schemi
 export GTK_PATH="$QUI/usr/lib/gtk-4.0"
-export XDG_DATA_DIRS="${XDG_DATA_DIRS:-/usr/local/share:/usr/share}:$QUI/usr/share"
+export XDG_DATA_DIRS="$TEMI:$DATI_SISTEMA:$QUI/usr/share"
 export GIO_MODULE_DIR="$QUI/usr/lib/gio/modules"
 sed "s|@APPDIR@|$QUI|g" "$QUI/usr/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache.in" > "$CACHE/pixbuf-loaders.cache"
 export GDK_PIXBUF_MODULE_FILE="$CACHE/pixbuf-loaders.cache"
