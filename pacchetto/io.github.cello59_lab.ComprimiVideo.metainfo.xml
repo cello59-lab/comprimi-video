@@ -88,6 +88,12 @@
   </supports>
 
   <releases>
+    <release version="0.7.2" date="2026-11-15">
+      <description>
+        <p>With HEVC and AV1, sizes are cropped to multiples of 8 (e.g. 854×480 → 848×480): many players showed other sizes wider than they are, with a green band on the right.</p>
+        <p xml:lang="it">Con HEVC e AV1 le dimensioni vengono ritagliate a multipli di 8 (es. 854×480 → 848×480): molti lettori mostravano le altre dimensioni più larghe del dovuto, con una banda verde a destra.</p>
+      </description>
+    </release>
     <release version="0.7.1" date="2026-11-15">
       <description>
         <p>Fixes the green band on the right of some videos compressed on the GPU (e.g. 854×480 becoming 894×480): before compressing, the app now tests the encoder with the exact size of each video and crops only when needed.</p>

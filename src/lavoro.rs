@@ -1,7 +1,7 @@
 //! Il nucleo: sonda del video, piano del comando ffmpeg ed esecuzione con avanzamento.
 //! Nessuna dipendenza dall'interfaccia: lo userà sia la riga di comando sia la finestra GTK.
 
-use crate::encoder::{DefEncoder, Famiglia};
+use crate::encoder::{Codec, DefEncoder, Famiglia};
 use crate::i18n::{num, t, tf};
 use crate::rileva::{Prova, Rilevamento};
 use crate::tempo::{self, Taglio};
@@ -342,28 +342,53 @@ pub fn pianifica_con(
     // (16, 32…) senza dire al lettore di togliere le righe in più, che appaiono come una banda
     // verde (es. 1920×1080 → 1920×1088). Il multiplo si misura nel rilevamento; qui si ritaglia
     // al centro a quel multiplo, così all'encoder non resta nulla da arrotondare.
-    let previste = (lw, lh);
+    let naturali = (lw, lh);
+    // HEVC e AV1 lavorano a blocchi di 8 pixel: con dimensioni non multiple di 8 il video viene
+    // codificato più grande, con l'istruzione per il lettore di nascondere il superfluo. Molti
+    // lettori (VLC, televisori) la applicano male con la decodifica su GPU: 854×480, codificato
+    // a 856, appariva 894×480 con una banda verde. Con dimensioni multiple di 8 non serve
+    // nessuna istruzione e nessun lettore può sbagliare. Per H.264 l'istruzione serve a ogni
+    // video 1080p e tutti la gestiscono bene: lì si lascia tutto com'è.
+    let base = if b.encoder.codec == Codec::H264 { naturali } else { (lw / 8 * 8, lh / 8 * 8) };
+    let previste = base;
     let (aw, ah) = b.allineamento;
-    if let Some(vf) = verifica.filter(|vf| vf.originali == previste) {
-        if vf.finali != previste {
-            let (cw, ch) = vf.finali;
-            // min(): se il ridimensionamento di ffmpeg desse un pixel in meno, il ritaglio non fallisce
-            filtri.push(format!("crop='min(iw,{cw})':'min(ih,{ch})'"));
-            note.push(tf(
-                "{}×{}: l'encoder lo trasformerebbe in {}×{} (banda verde); ritagliato a {}×{}",
-                &[&lw, &lh, &vf.prodotte.0, &vf.prodotte.1, &cw, &ch],
-            ));
-            risoluzione = cw.min(ch);
+    let (finali, nota_encoder) = match verifica.filter(|vf| vf.originali == base) {
+        Some(vf) => (
+            vf.finali,
+            (vf.prodotte != vf.originali).then(|| {
+                tf(
+                    "{}×{}: l'encoder lo trasformerebbe in {}×{} (banda verde); ritagliato a {}×{}",
+                    &[&base.0, &base.1, &vf.prodotte.0, &vf.prodotte.1, &vf.finali.0, &vf.finali.1],
+                )
+            }),
+        ),
+        // nessuna prova con le dimensioni del video: vale l'allineamento misurato nel rilevamento
+        None => {
+            let f = (base.0 / aw * aw, base.1 / ah * ah);
+            let multiplo = if aw == ah { aw.to_string() } else { format!("{aw}×{ah}") };
+            (
+                f,
+                (f != base).then(|| {
+                    tf(
+                        "{}×{} ritagliato a {}×{}: questo encoder vuole dimensioni multiple di {}",
+                        &[&base.0, &base.1, &f.0, &f.1, &multiplo],
+                    )
+                }),
+            )
         }
-    } else if lw % aw != 0 || lh % ah != 0 {
-        filtri.push(format!("crop=trunc(iw/{aw})*{aw}:trunc(ih/{ah})*{ah}"));
-        let (nw, nh) = (lw / aw * aw, lh / ah * ah);
-        let multiplo = if aw == ah { aw.to_string() } else { format!("{aw}×{ah}") };
-        note.push(tf(
-            "{}×{} ritagliato a {}×{}: questo encoder vuole dimensioni multiple di {}",
-            &[&lw, &lh, &nw, &nh, &multiplo],
-        ));
-        risoluzione = nw.min(nh);
+    };
+    if finali != naturali {
+        let (cw, ch) = finali;
+        // min(): se il ridimensionamento di ffmpeg desse un pixel in meno, il ritaglio non fallisce
+        filtri.push(format!("crop='min(iw,{cw})':'min(ih,{ch})'"));
+        if base != naturali {
+            note.push(tf(
+                "{}×{} ritagliato a {}×{}: con HEVC e AV1 le dimensioni multiple di 8 vengono mostrate bene da tutti i lettori",
+                &[&lw, &lh, &base.0, &base.1],
+            ));
+        }
+        note.extend(nota_encoder);
+        risoluzione = cw.min(ch);
     }
     filtri.push(b.encoder.filtro_finale().into());
     let filtro = filtri.join(",");
@@ -603,21 +628,28 @@ mod test {
     fn ritaglio_ai_multipli() {
         let mut v = video(1920, 802, Some("aac"));
         let o = Opzioni { risoluzione: None, ..Opzioni::default() };
+        // HEVC: 802 non è multiplo di 8 → 800 (e 800 va bene anche per l'allineamento a 16)
         let p = pianifica(&v, &[], &o, &backend("hevc_vaapi", "AMD")).unwrap();
-        assert!(cmd(&p).contains("-vf crop=trunc(iw/16)*16:trunc(ih/16)*16,format=nv12,hwupload"), "{}", cmd(&p));
-        assert_eq!(p.risoluzione, 800);
+        assert!(cmd(&p).contains("-vf crop='min(iw,1920)':'min(ih,800)',format=nv12,hwupload"), "{}", cmd(&p));
+        assert_eq!((p.previste, p.risoluzione), ((1920, 800), 800));
         assert!(p.uscita.ends_with("Znew_gara-800p-HEVC-AMD.mp4"));
-        // ridotto a 720p la larghezza diventa 1724: anche lei va ritagliata
+        assert_eq!(p.note.len(), 1, "{:?}", p.note);
+        // ridotto a 720p la larghezza diventa 1724: multiplo di 8 → 1720, allineamento a 16 → 1712
         let p = pianifica(&v, &[], &Opzioni::default(), &backend("hevc_vaapi", "AMD")).unwrap();
-        assert!(cmd(&p).contains("scale=-2:720,crop="), "{}", cmd(&p));
-        assert!(p.note.iter().any(|n| n.contains("1724×720 ritagliato a 1712×720")), "{:?}", p.note);
+        assert!(cmd(&p).contains("scale=-2:720,crop='min(iw,1712)':'min(ih,720)'"), "{}", cmd(&p));
+        assert!(p.note.iter().any(|n| n.contains("1724×720 ritagliato a 1720×720")), "{:?}", p.note);
+        assert!(p.note.iter().any(|n| n.contains("1720×720 ritagliato a 1712×720")), "{:?}", p.note);
         // già allineato: nessun ritaglio
         v = video(1920, 800, Some("aac"));
         let p = pianifica(&v, &[], &o, &backend("hevc_vaapi", "AMD")).unwrap();
         assert!(!cmd(&p).contains("crop"));
-        // gli encoder software gestiscono da soli le dimensioni: nessun ritaglio
+        // anche sulla CPU l'HEVC va a multipli di 8: il problema è dei lettori, non dell'encoder
         let p = pianifica(&video(1920, 802, None), &[], &o, &backend("libx265", "CPU")).unwrap();
-        assert!(!cmd(&p).contains("crop"));
+        assert!(cmd(&p).contains("crop='min(iw,1920)':'min(ih,800)'"), "{}", cmd(&p));
+        // H.264: nessun ritaglio, nemmeno con dimensioni non multiple di 8
+        let p = pianifica(&video(854, 480, None), &[], &o, &backend("libx264", "CPU")).unwrap();
+        assert!(!cmd(&p).contains("crop"), "{}", cmd(&p));
+        assert_eq!(p.previste, (854, 480));
         // misurato: l'encoder rispetta le dimensioni → nessun ritaglio
         let mut b = backend("hevc_vaapi", "AMD");
         b.allineamento = (1, 1);
@@ -627,7 +659,7 @@ mod test {
         // misurato: l'encoder arrotonda l'altezza a 32 → 1080 diventa 1056
         b.allineamento = (64, 32);
         let p = pianifica(&video(1920, 1080, None), &[], &o, &b).unwrap();
-        assert!(cmd(&p).contains("crop=trunc(iw/64)*64:trunc(ih/32)*32"), "{}", cmd(&p));
+        assert!(cmd(&p).contains("crop='min(iw,1920)':'min(ih,1056)'"), "{}", cmd(&p));
         assert_eq!(p.risoluzione, 1056);
         assert!(p.note[0].contains("1920×1056") && p.note[0].contains("64×32"), "{:?}", p.note);
     }
@@ -648,22 +680,29 @@ mod test {
         let o = Opzioni { risoluzione: None, ..Opzioni::default() };
         let mut b = backend("hevc_vaapi", "AMD");
         b.allineamento = (1, 1); // il rilevamento non aveva visto problemi
+        // il caso reale: 854×480 → prima 848 (multiplo di 8), che l'encoder poi rispetta
         let v = video(854, 480, Some("aac"));
-        let vf = Verifica { originali: (854, 480), prodotte: (894, 480), finali: (832, 480) };
+        let ok = Verifica { originali: (848, 480), prodotte: (848, 480), finali: (848, 480) };
+        let p = pianifica_con(&v, &[], &o, &b, Some(ok)).unwrap();
+        assert!(cmd(&p).contains("-vf crop='min(iw,848)':'min(ih,480)',format=nv12,hwupload"), "{}", cmd(&p));
+        assert_eq!((p.previste, p.risoluzione), ((848, 480), 480));
+        assert_eq!(p.note.len(), 1, "{:?}", p.note);
+        assert!(p.note[0].contains("854×480 ritagliato a 848×480"), "{:?}", p.note);
+        // l'encoder altera anche 848: si usa il ritaglio trovato dalla prova
+        let vf = Verifica { originali: (848, 480), prodotte: (894, 480), finali: (832, 480) };
         let p = pianifica_con(&v, &[], &o, &b, Some(vf)).unwrap();
-        assert!(cmd(&p).contains("-vf crop='min(iw,832)':'min(ih,480)',format=nv12,hwupload"), "{}", cmd(&p));
-        assert_eq!(p.previste, (854, 480));
-        assert_eq!(p.risoluzione, 480);
+        assert!(cmd(&p).contains("-vf crop='min(iw,832)':'min(ih,480)'"), "{}", cmd(&p));
         assert!(p.note.iter().any(|n| n.contains("894×480") && n.contains("832×480")), "{:?}", p.note);
         // la verifica dice che va bene così: nessun ritaglio, anche se il rilevamento ne chiedeva uno
         b.allineamento = (16, 16);
-        let ok = Verifica { originali: (854, 480), prodotte: (854, 480), finali: (854, 480) };
+        let v = video(1288, 480, None);
+        let ok = Verifica { originali: (1288, 480), prodotte: (1288, 480), finali: (1288, 480) };
         let p = pianifica_con(&v, &[], &o, &b, Some(ok)).unwrap();
         assert!(!cmd(&p).contains("crop"), "{}", cmd(&p));
         // verifica di altre dimensioni (non dovrebbe succedere): vale la regola del rilevamento
         let altra = Verifica { originali: (1280, 720), prodotte: (1280, 720), finali: (1280, 720) };
         let p = pianifica_con(&v, &[], &o, &b, Some(altra)).unwrap();
-        assert!(cmd(&p).contains("crop=trunc(iw/16)*16"), "{}", cmd(&p));
+        assert!(cmd(&p).contains("crop='min(iw,1280)':'min(ih,480)'"), "{}", cmd(&p));
         // i software non si provano
         assert!(verifica_dimensioni("/inesistente", &backend("libx264", "CPU"), (854, 480)).is_none());
     }

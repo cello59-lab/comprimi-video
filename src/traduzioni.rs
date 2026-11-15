@@ -180,6 +180,7 @@ pub const TESTI: &[(&str, &str)] = &[
     ("{}p → {}p · {} · qualità {}", "{}p → {}p · {} · quality {}"),
     ("{}×{} ritagliato a {}×{}: questo encoder vuole dimensioni multiple di {}", "{}×{} cropped to {}×{}: this encoder needs sizes that are multiples of {}"),
     ("{}×{}: l'encoder lo trasformerebbe in {}×{} (banda verde); ritagliato a {}×{}", "{}×{}: the encoder would turn it into {}×{} (green band); cropped to {}×{}"),
+    ("{}×{} ritagliato a {}×{}: con HEVC e AV1 le dimensioni multiple di 8 vengono mostrate bene da tutti i lettori", "{}×{} cropped to {}×{}: with HEVC and AV1, sizes that are multiples of 8 display correctly in every player"),
     ("⏭  già esistente: {}", "⏭  already exists: {}"),
     ("⏭ Già esistente", "⏭ Already exists"),
     ("⏹  annullato", "⏹  cancelled"),
