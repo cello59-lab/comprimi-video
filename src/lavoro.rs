@@ -204,6 +204,84 @@ pub struct Piano {
     /// Durata attesa del risultato, per la percentuale
     pub durata: f64,
     pub note: Vec<String>,
+    /// Dimensioni del video che arrivano all'encoder prima di un eventuale ritaglio
+    pub previste: (u32, u32),
+}
+
+/// Esito della prova dell'encoder con le dimensioni esatte di un video.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Verifica {
+    /// Dimensioni provate (quelle del video da comprimere)
+    pub originali: (u32, u32),
+    /// Cosa ne ha fatto l'encoder
+    pub prodotte: (u32, u32),
+    /// Dimensioni da dare all'encoder perché le rispetti (uguali alle originali se va bene così)
+    pub finali: (u32, u32),
+}
+
+/// Dimensioni da provare, dalla più grande: le originali, poi ritagli ai multipli
+/// di 8…128 di una o di entrambe le dimensioni.
+pub fn candidati_ritaglio((w, h): (u32, u32)) -> Vec<(u32, u32)> {
+    let multipli = [1u32, 8, 16, 32, 64, 128];
+    let mut c: Vec<(u32, u32)> = multipli
+        .iter()
+        .flat_map(|aw| multipli.iter().map(move |ah| (w / aw * aw, h / ah * ah)))
+        .filter(|(cw, ch)| *cw >= 16 && *ch >= 16 && cw % 2 == 0 && ch % 2 == 0)
+        .collect();
+    c.sort_by_key(|(cw, ch)| std::cmp::Reverse(cw * ch));
+    c.dedup();
+    c
+}
+
+/// Prova l'encoder con le dimensioni del video e, se le altera, cerca il ritaglio più piccolo
+/// che rispetta. Serve per gli encoder su GPU, che con alcune dimensioni producono righe o
+/// colonne in più (banda verde): es. 854×480 → 894×480 con l'HEVC AMD. I risultati restano
+/// in memoria finché il programma è aperto, così in una serie di video uguali la prova si fa una volta.
+pub fn verifica_dimensioni(ffmpeg: &str, b: &Backend, dim: (u32, u32)) -> Option<Verifica> {
+    use std::collections::HashMap;
+    use std::sync::OnceLock;
+    if b.encoder.famiglia == Famiglia::Software {
+        return None; // gli encoder software rispettano sempre le dimensioni
+    }
+    static RICORDATE: OnceLock<Mutex<HashMap<String, Option<Verifica>>>> = OnceLock::new();
+    let chiave = format!("{ffmpeg}|{}|{}|{}x{}", b.encoder.nome, b.nodo.as_deref().unwrap_or("-"), dim.0, dim.1);
+    let ricordate = RICORDATE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(v) = ricordate.lock().unwrap().get(&chiave) {
+        return *v;
+    }
+    let mut prodotte = None;
+    let mut esito = None;
+    for (i, c) in candidati_ritaglio(dim).into_iter().take(8).enumerate() {
+        match crate::rileva::prova_dimensioni(ffmpeg, b.encoder, b.nodo.as_deref(), c) {
+            Some(d) if d == c => {
+                esito = Some(Verifica { originali: dim, prodotte: prodotte.unwrap_or(d), finali: c });
+                break;
+            }
+            Some(d) if i == 0 => prodotte = Some(d),
+            Some(_) => {}
+            // l'encoder non riesce nemmeno a fare la prova: si torna alla regola del rilevamento
+            None if i == 0 => break,
+            None => {}
+        }
+    }
+    ricordate.lock().unwrap().insert(chiave, esito);
+    esito
+}
+
+/// Come `pianifica`, ma prima prova l'encoder con le dimensioni esatte del video
+/// (vedi `verifica_dimensioni`) e ritaglia solo se serve davvero.
+pub fn pianifica_verificata(
+    ffmpeg: &str,
+    v: &InfoVideo,
+    tagli: &[Taglio],
+    o: &Opzioni,
+    b: &Backend,
+) -> Result<Piano, String> {
+    let piano = pianifica(v, tagli, o, b)?;
+    match verifica_dimensioni(ffmpeg, b, piano.previste) {
+        Some(vf) => pianifica_con(v, tagli, o, b, Some(vf)),
+        None => Ok(piano),
+    }
 }
 
 /// Codec audio che si possono copiare così come sono in un file MP4.
@@ -224,6 +302,18 @@ pub fn nome_uscita(v: &InfoVideo, o: &Opzioni, b: &Backend, risoluzione: u32) ->
 }
 
 pub fn pianifica(v: &InfoVideo, tagli: &[Taglio], o: &Opzioni, b: &Backend) -> Result<Piano, String> {
+    pianifica_con(v, tagli, o, b, None)
+}
+
+/// `verifica`: esito della prova dell'encoder con le dimensioni del video; se c'è, decide lei
+/// il ritaglio, altrimenti vale l'allineamento misurato nel rilevamento.
+pub fn pianifica_con(
+    v: &InfoVideo,
+    tagli: &[Taglio],
+    o: &Opzioni,
+    b: &Backend,
+    verifica: Option<Verifica>,
+) -> Result<Piano, String> {
     let mut note = Vec::new();
     let mut filtri: Vec<String> = Vec::new();
 
@@ -252,8 +342,20 @@ pub fn pianifica(v: &InfoVideo, tagli: &[Taglio], o: &Opzioni, b: &Backend) -> R
     // (16, 32…) senza dire al lettore di togliere le righe in più, che appaiono come una banda
     // verde (es. 1920×1080 → 1920×1088). Il multiplo si misura nel rilevamento; qui si ritaglia
     // al centro a quel multiplo, così all'encoder non resta nulla da arrotondare.
+    let previste = (lw, lh);
     let (aw, ah) = b.allineamento;
-    if lw % aw != 0 || lh % ah != 0 {
+    if let Some(vf) = verifica.filter(|vf| vf.originali == previste) {
+        if vf.finali != previste {
+            let (cw, ch) = vf.finali;
+            // min(): se il ridimensionamento di ffmpeg desse un pixel in meno, il ritaglio non fallisce
+            filtri.push(format!("crop='min(iw,{cw})':'min(ih,{ch})'"));
+            note.push(tf(
+                "{}×{}: l'encoder lo trasformerebbe in {}×{} (banda verde); ritagliato a {}×{}",
+                &[&lw, &lh, &vf.prodotte.0, &vf.prodotte.1, &cw, &ch],
+            ));
+            risoluzione = cw.min(ch);
+        }
+    } else if lw % aw != 0 || lh % ah != 0 {
         filtri.push(format!("crop=trunc(iw/{aw})*{aw}:trunc(ih/{ah})*{ah}"));
         let (nw, nh) = (lw / aw * aw, lh / ah * ah);
         let multiplo = if aw == ah { aw.to_string() } else { format!("{aw}×{ah}") };
@@ -330,7 +432,7 @@ pub fn pianifica(v: &InfoVideo, tagli: &[Taglio], o: &Opzioni, b: &Backend) -> R
     a.extend(["-movflags", "+faststart", "-progress", "pipe:1", "-nostats"].iter().map(|s| s.to_string()));
     a.push(temporaneo.to_string_lossy().into_owned());
 
-    Ok(Piano { argomenti: a, uscita, temporaneo, risoluzione, durata, note })
+    Ok(Piano { argomenti: a, uscita, temporaneo, risoluzione, durata, note, previste })
 }
 
 // ------------------------------------------------------------------ esecuzione
@@ -528,6 +630,42 @@ mod test {
         assert!(cmd(&p).contains("crop=trunc(iw/64)*64:trunc(ih/32)*32"), "{}", cmd(&p));
         assert_eq!(p.risoluzione, 1056);
         assert!(p.note[0].contains("1920×1056") && p.note[0].contains("64×32"), "{:?}", p.note);
+    }
+
+    #[test]
+    fn candidati() {
+        let c = candidati_ritaglio((854, 480));
+        assert_eq!(c[0], (854, 480));
+        assert_eq!(c[1], (848, 480)); // multiplo di 8/16 in larghezza: si perde meno
+        assert!(c.contains(&(832, 480)) && c.contains(&(768, 480)));
+        assert!(c.windows(2).all(|w| w[0].0 * w[0].1 >= w[1].0 * w[1].1));
+        // già allineato a 64: le prime due prove sono l'originale e il multiplo di 128 in altezza
+        assert_eq!(candidati_ritaglio((1920, 1088))[..2], [(1920, 1088), (1920, 1024)]);
+    }
+
+    #[test]
+    fn ritaglio_da_verifica() {
+        let o = Opzioni { risoluzione: None, ..Opzioni::default() };
+        let mut b = backend("hevc_vaapi", "AMD");
+        b.allineamento = (1, 1); // il rilevamento non aveva visto problemi
+        let v = video(854, 480, Some("aac"));
+        let vf = Verifica { originali: (854, 480), prodotte: (894, 480), finali: (832, 480) };
+        let p = pianifica_con(&v, &[], &o, &b, Some(vf)).unwrap();
+        assert!(cmd(&p).contains("-vf crop='min(iw,832)':'min(ih,480)',format=nv12,hwupload"), "{}", cmd(&p));
+        assert_eq!(p.previste, (854, 480));
+        assert_eq!(p.risoluzione, 480);
+        assert!(p.note.iter().any(|n| n.contains("894×480") && n.contains("832×480")), "{:?}", p.note);
+        // la verifica dice che va bene così: nessun ritaglio, anche se il rilevamento ne chiedeva uno
+        b.allineamento = (16, 16);
+        let ok = Verifica { originali: (854, 480), prodotte: (854, 480), finali: (854, 480) };
+        let p = pianifica_con(&v, &[], &o, &b, Some(ok)).unwrap();
+        assert!(!cmd(&p).contains("crop"), "{}", cmd(&p));
+        // verifica di altre dimensioni (non dovrebbe succedere): vale la regola del rilevamento
+        let altra = Verifica { originali: (1280, 720), prodotte: (1280, 720), finali: (1280, 720) };
+        let p = pianifica_con(&v, &[], &o, &b, Some(altra)).unwrap();
+        assert!(cmd(&p).contains("crop=trunc(iw/16)*16"), "{}", cmd(&p));
+        // i software non si provano
+        assert!(verifica_dimensioni("/inesistente", &backend("libx264", "CPU"), (854, 480)).is_none());
     }
 
     #[test]

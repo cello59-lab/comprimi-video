@@ -88,6 +88,12 @@
   </supports>
 
   <releases>
+    <release version="0.7.1" date="2026-11-15">
+      <description>
+        <p>Fixes the green band on the right of some videos compressed on the GPU (e.g. 854×480 becoming 894×480): before compressing, the app now tests the encoder with the exact size of each video and crops only when needed.</p>
+        <p xml:lang="it">Corregge la banda verde a destra di alcuni video compressi sulla GPU (es. 854×480 che diventava 894×480): prima di comprimere, l'app prova l'encoder con le dimensioni esatte di ogni video e ritaglia solo se serve.</p>
+      </description>
+    </release>
     <release version="0.7.0" date="2026-11-13">
       <description>
         <p>The interface is now in English and Italian: it follows the system language and can be changed from the main menu.</p>

@@ -1184,7 +1184,7 @@ fn lavora(
             break;
         }
         let nome = info.percorso.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        let piano = match lavoro::pianifica(&info, &tagli, &o, &b) {
+        let piano = match lavoro::pianifica_verificata(&ffmpeg, &info, &tagli, &o, &b) {
             Ok(p) => p,
             Err(e) => {
                 invia(Msg::Stato(i, format!("❌ {e}"), None));

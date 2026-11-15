@@ -179,6 +179,7 @@ pub const TESTI: &[(&str, &str)] = &[
     ("{} · ritaglia a multipli di {}", "{} · crops to multiples of {}"),
     ("{}p → {}p · {} · qualità {}", "{}p → {}p · {} · quality {}"),
     ("{}×{} ritagliato a {}×{}: questo encoder vuole dimensioni multiple di {}", "{}×{} cropped to {}×{}: this encoder needs sizes that are multiples of {}"),
+    ("{}×{}: l'encoder lo trasformerebbe in {}×{} (banda verde); ritagliato a {}×{}", "{}×{}: the encoder would turn it into {}×{} (green band); cropped to {}×{}"),
     ("⏭  già esistente: {}", "⏭  already exists: {}"),
     ("⏭ Già esistente", "⏭ Already exists"),
     ("⏹  annullato", "⏹  cancelled"),

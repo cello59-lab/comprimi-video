@@ -202,6 +202,17 @@ pub const PROVA_A: u32 = 642;
 /// Argomenti della codifica di prova: 15 fotogrammi generati da ffmpeg, scritti in `uscita`
 /// (per misurarne le dimensioni) oppure buttati via.
 pub fn comando_prova(d: &DefEncoder, nodo: Option<&str>, uscita: Option<&Path>) -> Vec<String> {
+    comando_prova_misura(d, nodo, uscita, (PROVA_L, PROVA_A), 15)
+}
+
+/// Come `comando_prova`, con dimensioni e numero di fotogrammi a scelta.
+pub fn comando_prova_misura(
+    d: &DefEncoder,
+    nodo: Option<&str>,
+    uscita: Option<&Path>,
+    (w, h): (u32, u32),
+    fotogrammi: u32,
+) -> Vec<String> {
     let mut a: Vec<String> = ["-hide_banner", "-nostdin", "-y", "-loglevel", "error"]
         .iter()
         .map(|s| s.to_string())
@@ -210,10 +221,11 @@ pub fn comando_prova(d: &DefEncoder, nodo: Option<&str>, uscita: Option<&Path>) 
     a.push("-f".into());
     a.push("lavfi".into());
     a.push("-i".into());
-    a.push(format!("testsrc2=size={PROVA_L}x{PROVA_A}:rate=30"));
-    for s in ["-frames:v", "15", "-an", "-vf"] {
-        a.push(s.into());
-    }
+    a.push(format!("testsrc2=size={w}x{h}:rate=30"));
+    a.push("-frames:v".into());
+    a.push(fotogrammi.to_string());
+    a.push("-an".into());
+    a.push("-vf".into());
     a.push(d.filtro_finale().into());
     a.push("-c:v".into());
     a.push(d.nome.into());
@@ -236,6 +248,22 @@ pub fn multiplo(prima: u32, dopo: u32) -> Option<u32> {
         return Some(1);
     }
     [2, 4, 8, 16, 32, 64, 128].into_iter().find(|a| prima.div_ceil(*a) * a == dopo)
+}
+
+/// Codifica pochi fotogrammi di dimensioni `w`×`h` con l'encoder e restituisce le
+/// dimensioni del risultato (None se la codifica non riesce).
+pub fn prova_dimensioni(ffmpeg: &str, d: &DefEncoder, nodo: Option<&str>, (w, h): (u32, u32)) -> Option<(u32, u32)> {
+    static CONTATORE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let n = CONTATORE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let file = std::env::temp_dir().join(format!(
+        "comprimi-video-misura-{}-{n}-{}-{w}x{h}.mkv",
+        std::process::id(),
+        d.nome
+    ));
+    let (esito, _) = esegui_comando(ffmpeg, comando_prova_misura(d, nodo, Some(&file), (w, h), 3));
+    let risultato = if esito == Esito::Funziona { dimensioni(ffmpeg, &file) } else { None };
+    let _ = std::fs::remove_file(&file);
+    risultato
 }
 
 /// Larghezza e altezza del video in un file, lette con ffprobe.
@@ -366,6 +394,16 @@ mod test {
         assert!(s.contains("-vf format=nv12,hwupload -c:v hevc_vaapi -global_quality 30 -f matroska /tmp/p.mkv"), "{s}");
         let a = comando_prova(cerca("libx264").unwrap(), None, None);
         assert!(a.join(" ").ends_with("-f null -"));
+    }
+
+    /// Prova vera con ffmpeg (se c'è): una codifica software rispetta le dimensioni.
+    #[test]
+    fn misura_vera() {
+        let Some(ff) = crate::ffmpeg::trova() else { return };
+        let d = cerca("libx264").unwrap();
+        assert_eq!(prova_dimensioni(&ff.percorso, d, None, (854, 480)), Some((854, 480)));
+        assert_eq!(prova_dimensioni(&ff.percorso, d, None, (1282, 642)), Some((1282, 642)));
+        assert_eq!(prova_dimensioni("/inesistente/ffmpeg", d, None, (854, 480)), None);
     }
 
     #[test]

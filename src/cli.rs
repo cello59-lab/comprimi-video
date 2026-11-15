@@ -340,7 +340,7 @@ fn comprimi(a: Argomenti) -> ExitCode {
                 continue;
             }
         };
-        let piano = match lavoro::pianifica(&v, &a.tagli, &a.opzioni, &backend) {
+        let piano = match lavoro::pianifica_verificata(&ff.percorso, &v, &a.tagli, &a.opzioni, &backend) {
             Ok(p) => p,
             Err(e) => {
                 println!("      ❌ {e}");
